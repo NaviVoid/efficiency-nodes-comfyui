@@ -1,0 +1,101 @@
+.github/FUNDING.yml
+.github/workflows/publish.yml
+LICENSE
+README.md
+__init__.py
+arial.ttf
+efficiency_nodes.py
+funding.yml
+images/2023-10-31_22-43-17.png
+images/2023-11-01_14-25-01.png
+images/2023-11-01_19-54-59.png
+images/2023-11-04_22-32-57.png
+images/2023-11-04_22-33-57.png
+images/2023-11-04_22-46-20.png
+images/2023-11-04_22-47-09.png
+images/2023-11-04_22-57-28.png
+images/2023-11-04_23-10-03.png
+images/2023-11-05_00-02-07.png
+images/2023-11-05_00-02-34.png
+images/2023-12-08_19-53-37.png
+images/2023-12-08_19-54-11.png
+images/2024-01-19_22-39-03.png
+images/2024-01-19_22-39-26.png
+images/2024-01-19_22-39-50.png
+images/ComfyUI_temp_vpose_00005_.png
+images/Mgazinelogo01_600.jpg
+images/README.md
+images/jagsP1.png
+images/nodes/AnimateDiff & HiResFix Scripts.gif
+images/nodes/AnimateDiff - Node Example.gif
+images/nodes/HighResFix - Node Example.gif
+images/nodes/Image Overlay - Node Example.png
+images/nodes/NODE - AnimateDiff Script.png
+images/nodes/NODE - Eff. Loader SDXL.png
+images/nodes/NODE - Efficient Loader.png
+images/nodes/NODE - Evaluate Floats.png
+images/nodes/NODE - Evaluate Integers.png
+images/nodes/NODE - Evaluate Strings.png
+images/nodes/NODE - HighRes-Fix Script.png
+images/nodes/NODE - Image Overlay.png
+images/nodes/NODE - KSampler (Efficient).png
+images/nodes/NODE - KSampler Adv. (Efficient).png
+images/nodes/NODE - KSampler SDXL (Eff.).png
+images/nodes/NODE - Noise Control Script.png
+images/nodes/NODE - Tiled Upscaler Script.png
+images/nodes/NODE - XY Plot Script.png
+images/nodes/NODE - XY Plot.png
+images/nodes/NodeMenu - Efficient Loaders.png
+images/nodes/ScriptChain.png
+images/nodes/Tiled Upscaler - Node Example.gif
+images/nodes/XY Plot - Node Example.png
+images/nodes/readme.md
+js/appearance.js
+js/gif_preview.js
+js/node_options/addLinks.js
+js/node_options/addScripts.js
+js/node_options/addXYinputs.js
+js/node_options/common/modelInfoDialog.css
+js/node_options/common/modelInfoDialog.js
+js/node_options/common/utils.js
+js/node_options/modelInfo.js
+js/node_options/setResolution.js
+js/node_options/swapLoaders.js
+js/node_options/swapSamplers.js
+js/node_options/swapScripts.js
+js/node_options/swapXYinputs.js
+js/previewfix.js
+js/seedcontrol.js
+js/widgethider.js
+js/workflowfix.js
+models/readme.md
+node_settings.json
+py/__init__.py
+py/bnk_adv_encode.py
+py/bnk_tiled_samplers.py
+py/bnk_tiling.py
+py/cg_mixed_seed_noise.py
+py/city96_latent_upscaler.py
+py/sd15_resizer.pt
+py/sdxl_resizer.pt
+py/smZ_cfg_denoiser.py
+py/smZ_rng_source.py
+py/ttl_nn_latent_upscaler.py
+pyproject.toml
+requirements.txt
+tsc_utils.py
+workflows/AnimateDiff & HiResFix Scripts.gif
+workflows/EFF_TiledscriptWorkflow.png
+workflows/Eff_XYPlot - LoRA Model vs Clip Strengths01.png
+workflows/Eff_animatediff_script_wf001.png
+workflows/Eff_multiKsampler_withScriptsSDXL.png
+workflows/HiResFix Script.png
+workflows/HiResfix_workflow.png
+workflows/SDXL Refining & Noise Control Script.png
+workflows/SDXL_base_refine_noise_workflow.png
+workflows/SimpleEval_Node_Examples.txt
+workflows/Tiled Upscaler Script.png
+workflows/XY Plot Input Manual Entry Notes.txt
+workflows/XYPlot - LoRA Model vs Clip Strengths.png
+workflows/XYPlot - Seeds vs Checkpoints & Stacked Scripts.png
+workflows/eff_animatescriptWF001.gif
