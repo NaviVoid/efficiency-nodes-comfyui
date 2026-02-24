@@ -2,27 +2,44 @@
 # by Luciano Cirino (Discord: TSC#9184) - April 2023 - October 2023
 # https://github.com/LucianoCirino/efficiency-nodes-comfyui
 
-from torch import Tensor
-from PIL import Image, ImageOps, ImageDraw, ImageFont, ImageSequence
-
-from PIL.PngImagePlugin import PngInfo
-import numpy as np
-import torch
-
 import ast
-from pathlib import Path
-from importlib import import_module
-import os
-import sys
 import copy
-import subprocess
 import json
-import psutil
+import os
+import subprocess
+import sys
+from importlib import import_module
+from pathlib import Path
 
-from comfy_extras.nodes_align_your_steps import AlignYourStepsScheduler
-from comfy_extras.nodes_gits import GITSScheduler
-from nodes import LoadImage
+import comfy.latent_formats
+import comfy.sample
+import comfy.samplers
+import comfy.sd
+import comfy.utils
 import node_helpers
+import numpy as np
+import psutil
+import torch
+from comfy import samplers
+from comfy_extras.nodes_align_your_steps import AlignYourStepsScheduler
+from comfy_extras.nodes_clip_sdxl import (CLIPTextEncodeSDXL,
+                                          CLIPTextEncodeSDXLRefiner)
+from comfy_extras.nodes_gits import GITSScheduler
+from comfy_extras.nodes_upscale_model import (ImageUpscaleWithModel,
+                                              UpscaleModelLoader)
+from nodes import (MAX_RESOLUTION, CLIPSetLastLayer, CLIPTextEncode,
+                   ControlNetApply, ControlNetApplyAdvanced, ControlNetLoader,
+                   ImageScaleBy, KSampler, KSamplerAdvanced, LatentUpscaleBy,
+                   LoadImage, PreviewImage, VAEDecode, VAEDecodeTiled,
+                   VAEEncode, VAEEncodeTiled)
+from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageSequence
+from PIL.PngImagePlugin import PngInfo
+from torch import Tensor
+
+from .py import (bnk_adv_encode, bnk_tiled_samplers, cg_mixed_seed_noise,
+                 city96_latent_upscaler, smZ_cfg_denoiser, smZ_rng_source,
+                 ttl_nn_latent_upscaler)
+from .tsc_utils import *
 
 # Get the absolute path of various directories
 my_dir = os.path.dirname(os.path.abspath(__file__))
@@ -34,47 +51,15 @@ font_path = os.path.join(my_dir, "arial.ttf")
 
 # Append comfy_dir to sys.path & import files
 sys.path.append(comfy_dir)
-from nodes import (
-    LatentUpscaleBy,
-    KSampler,
-    KSamplerAdvanced,
-    VAEDecode,
-    VAEDecodeTiled,
-    VAEEncode,
-    VAEEncodeTiled,
-    ImageScaleBy,
-    CLIPSetLastLayer,
-    CLIPTextEncode,
-    ControlNetLoader,
-    ControlNetApply,
-    ControlNetApplyAdvanced,
-    PreviewImage,
-    MAX_RESOLUTION,
-)
-from comfy_extras.nodes_upscale_model import UpscaleModelLoader, ImageUpscaleWithModel
-from comfy_extras.nodes_clip_sdxl import CLIPTextEncodeSDXL, CLIPTextEncodeSDXLRefiner
-import comfy.sample
-import comfy.samplers
-import comfy.sd
-import comfy.utils
-import comfy.latent_formats
 
 sys.path.remove(comfy_dir)
 
 # Append my_dir to sys.path & import files
 sys.path.append(my_dir)
-from tsc_utils import *
-from .py import smZ_cfg_denoiser
-from .py import smZ_rng_source
-from .py import cg_mixed_seed_noise
-from .py import city96_latent_upscaler
-from .py import ttl_nn_latent_upscaler
-from .py import bnk_tiled_samplers
-from .py import bnk_adv_encode
+
 
 sys.path.remove(my_dir)
 
-from comfy import samplers
 
 # Append custom_nodes_dir to sys.path
 sys.path.append(custom_nodes_dir)
@@ -165,7 +150,6 @@ def encode_prompts(
 ########################################################################################################################
 # TSC Efficient Loader
 class TSC_EfficientLoader:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -292,7 +276,9 @@ class TSC_EfficientLoader:
                 vae = get_bvae_by_ckpt_name(ckpt_name)
                 if vae is None:
                     print(
-                        f"{warning('Efficiency Nodes:')} Baked VAE not found in cache, loading checkpoint to extract VAE..."
+                        f"{
+                            warning('Efficiency Nodes:')
+                        } Baked VAE not found in cache, loading checkpoint to extract VAE..."
                     )
                     _, _, vae = load_checkpoint(
                         ckpt_name,
@@ -383,8 +369,8 @@ class TSC_EfficientLoader:
             cnet_stack,
         )
 
-        ### Debugging
-        ###print_loaded_objects_entries()
+        # Debugging
+        # print_loaded_objects_entries()
         print_loaded_objects_entries(my_unique_id, prompt)
 
         if loader_type == "regular":
@@ -418,7 +404,6 @@ class TSC_EfficientLoader:
 # =======================================================================================================================
 # TSC Efficient Loader SDXL
 class TSC_EfficientLoaderSDXL(TSC_EfficientLoader):
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -536,7 +521,6 @@ class TSC_EfficientLoaderSDXL(TSC_EfficientLoader):
 # =======================================================================================================================
 # TSC Unpack SDXL Tuple
 class TSC_Unpack_SDXL_Tuple:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -582,7 +566,6 @@ class TSC_Unpack_SDXL_Tuple:
 # =======================================================================================================================
 # TSC Pack SDXL Tuple
 class TSC_Pack_SDXL_Tuple:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -700,7 +683,6 @@ class TSC_LoRA_Stacker:
 # =======================================================================================================================
 # TSC Control Net Stacker
 class TSC_Control_Net_Stacker:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -743,7 +725,6 @@ class TSC_Control_Net_Stacker:
 # =======================================================================================================================
 # TSC Apply ControlNet Stack
 class TSC_Apply_ControlNet_Stack:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -875,7 +856,9 @@ class TSC_KSampler:
         # If vae is not connected, disable vae decoding
         if vae == (None,) and vae_decode != "false":
             print(
-                f"{warning('KSampler(Efficient) Warning:')} No vae input detected, proceeding as if vae_decode was false.\n"
+                f"{
+                    warning('KSampler(Efficient) Warning:')
+                } No vae input detected, proceeding as if vae_decode was false.\n"
             )
             vae_decode = "false"
 
@@ -998,7 +981,9 @@ class TSC_KSampler:
                     if preview_method != "none":
                         set_preview_method("none")  # disable preview method
                         print(
-                            f"{warning('KSampler(Efficient) Warning:')} Live preview disabled for animatediff generations."
+                            f"{
+                                warning('KSampler(Efficient) Warning:')
+                            } Live preview disabled for animatediff generations."
                         )
                     (
                         motion_model,
@@ -1376,7 +1361,9 @@ class TSC_KSampler:
                     if preprocessor_imgs and upscale_type == "latent":
                         if keys_exist_in_script("xyplot"):
                             print(
-                                f"{warning('HighRes-Fix Warning:')} Preprocessor images auto-disabled when XY Plotting."
+                                f"{
+                                    warning('HighRes-Fix Warning:')
+                                } Preprocessor images auto-disabled when XY Plotting."
                             )
                         else:
                             # Resize cnet_imgs if necessary and stack
@@ -1419,7 +1406,6 @@ class TSC_KSampler:
         # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         # If not XY Plotting
         if not keys_exist_in_script("xyplot"):
-
             # Process latent image
             samples, images, gifs, preview = process_latent_image(
                 model,
@@ -1470,11 +1456,12 @@ class TSC_KSampler:
         # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
         # If XY Plot
         elif keys_exist_in_script("xyplot"):
-
             # If no vae connected, throw errors
             if vae == (None,):
                 print(
-                    f"{error('KSampler(Efficient) Error:')} VAE input must be connected in order to use the XY Plot script."
+                    f"{
+                        error('KSampler(Efficient) Error:')
+                    } VAE input must be connected in order to use the XY Plot script."
                 )
 
                 return {
@@ -1492,7 +1479,9 @@ class TSC_KSampler:
             # If vae_decode is not set to true, print message that changing it to true
             if "true" not in vae_decode:
                 print(
-                    f"{warning('KSampler(Efficient) Warning:')} VAE decoding must be set to 'true'"
+                    f"{
+                        warning('KSampler(Efficient) Warning:')
+                    } VAE decoding must be set to 'true'"
                     " for the XY Plot script, proceeding as if 'true'.\n"
                 )
 
@@ -1613,7 +1602,9 @@ class TSC_KSampler:
                 print(
                     f"{error_prefix} Invalid value for {' and '.join(failed_type)}. "
                     f"Use {suggested_ksampler} for this XY Plot type."
-                    f"\nDisallowed XY_types for this KSampler are: {', '.join(disallowed_XY_types)}."
+                    f"\nDisallowed XY_types for this KSampler are: {
+                        ', '.join(disallowed_XY_types)
+                    }."
                 )
 
                 return {
@@ -1736,12 +1727,16 @@ class TSC_KSampler:
             replacement_X = (
                 scheduler
                 if X_type == "Sampler"
-                else clip_skip if X_type == "Checkpoint" else None
+                else clip_skip
+                if X_type == "Checkpoint"
+                else None
             )
             replacement_Y = (
                 scheduler
                 if Y_type == "Sampler"
-                else clip_skip if Y_type == "Checkpoint" else None
+                else clip_skip
+                if Y_type == "Checkpoint"
+                else None
             )
 
             # Process X_value and Y_value
@@ -1929,8 +1924,8 @@ class TSC_KSampler:
                 ckpt_dict = []
                 refn_dict = []
 
-            ### Print dict_arrays for debugging
-            ###print(f"vae_dict={vae_dict}\nckpt_dict={ckpt_dict}\nlora_dict={lora_dict}\nrefn_dict={refn_dict}")
+            # Print dict_arrays for debugging
+            # print(f"vae_dict={vae_dict}\nckpt_dict={ckpt_dict}\nlora_dict={lora_dict}\nrefn_dict={refn_dict}")
 
             # Clean values that won't be reused
             clear_cache_by_exception(
@@ -1941,8 +1936,8 @@ class TSC_KSampler:
                 refn_dict=refn_dict,
             )
 
-            ### Print loaded_objects for debugging
-            ###print_loaded_objects_entries()
+            # Print loaded_objects for debugging
+            # print_loaded_objects_entries()
 
             # _______________________________________________________________________________________________________
             # Function that changes appropiate variables for next processed generations (also generates XY_labels)
@@ -2014,7 +2009,7 @@ class TSC_KSampler:
                 # If var_type is "CFG Scale", update cfg with var and generate text label
                 elif var_type == "CFG Scale":
                     cfg = var
-                    text = f"CFG: {round(cfg,2)}"
+                    text = f"CFG: {round(cfg, 2)}"
 
                 # If var_type is "Sampler", update sampler_name and scheduler with var, and generate text label
                 elif var_type == "Sampler":
@@ -2201,7 +2196,9 @@ class TSC_KSampler:
                             if lora_model_wt == lora_clip_wt:
                                 text = f"LoRA: {lora_filename}({lora_model_wt})"
                             else:
-                                text = f"LoRA: {lora_filename}({lora_model_wt},{lora_clip_wt})"
+                                text = f"LoRA: {lora_filename}({lora_model_wt},{
+                                    lora_clip_wt
+                                })"
                         elif len(lora_stack) > 1:
                             lora_filenames = [
                                 os.path.splitext(os.path.basename(lora_name))[0]
@@ -2599,7 +2596,6 @@ class TSC_KSampler:
                         latent_list.append(latent)
 
                 if capsule_result is None:
-
                     samples, images, _, _ = process_latent_image(
                         model,
                         seed,
@@ -2830,7 +2826,6 @@ class TSC_KSampler:
 
                 elif X_type != "Nothing" and Y_type != "Nothing":
                     for Y_index, Y in enumerate(Y_value):
-
                         if Y_type == "XY_Capsule" or X_type == "XY_Capsule":
                             model, clip, refiner_model, refiner_clip = clone_or_none(
                                 original_model,
@@ -3010,7 +3005,8 @@ class TSC_KSampler:
                 i_width,
             ):
 
-                print("-" * 40)  # Print an empty line followed by a separator line
+                # Print an empty line followed by a separator line
+                print("-" * 40)
                 print(f"{xyplot_message('XY Plot Results:')}")
 
                 def get_vae_name(X_type, Y_type, X_value, Y_value, vae_name):
@@ -3150,7 +3146,9 @@ class TSC_KSampler:
                             names_list = []
                             for name, model_wt, clip_wt in lora_stack:
                                 base_name = os.path.splitext(os.path.basename(name))[0]
-                                formatted_str = f"{base_name}({round(model_wt, 3)},{round(clip_wt, 3)})"
+                                formatted_str = f"{base_name}({round(model_wt, 3)},{
+                                    round(clip_wt, 3)
+                                })"
                                 names_list.append(formatted_str)
                             lora_name = f"[{', '.join(names_list)}]"
                     else:
@@ -3322,7 +3320,9 @@ class TSC_KSampler:
                 steps = (
                     ", ".join(map(str, X_value))
                     if X_type == "Steps"
-                    else ", ".join(map(str, Y_value)) if Y_type == "Steps" else steps
+                    else ", ".join(map(str, Y_value))
+                    if Y_type == "Steps"
+                    else steps
                 )
 
                 # StartStep
@@ -3377,7 +3377,11 @@ class TSC_KSampler:
                     else:
                         sampler_name = ", ".join(
                             [
-                                f"{x[0]}({x[1] if x[1] != '' and x[1] is not None else scheduler[1]})"
+                                f"{x[0]}({
+                                    x[1]
+                                    if x[1] != '' and x[1] is not None
+                                    else scheduler[1]
+                                })"
                                 for x in X_value
                             ]
                         )
@@ -3389,7 +3393,11 @@ class TSC_KSampler:
                     else:
                         sampler_name = ", ".join(
                             [
-                                f"{y[0]}({y[1] if y[1] != '' and y[1] is not None else scheduler[1]})"
+                                f"{y[0]}({
+                                    y[1]
+                                    if y[1] != '' and y[1] is not None
+                                    else scheduler[1]
+                                })"
                                 for y in Y_value
                             ]
                         )
@@ -3454,7 +3462,7 @@ class TSC_KSampler:
                 # ..........................................PRINTOUTS....................................................
                 print(f"(X) {X_type}")
                 print(f"(Y) {Y_type}")
-                print(f"img_count: {len(X_value)*len(Y_value)}")
+                print(f"img_count: {len(X_value) * len(Y_value)}")
                 print(f"img_dims: {i_height} x {i_width}")
                 print(f"plot_dim: {num_cols} x {num_rows}")
                 print(f"ckpt: {ckpt_name if ckpt_name is not None else ''}")
@@ -3463,14 +3471,22 @@ class TSC_KSampler:
                 if sampler_type == "sdxl":
                     if refiner_clip_skip == "_":
                         print(
-                            f"refiner(clipskip): {refiner_name if refiner_name is not None else ''}"
+                            f"refiner(clipskip): {
+                                refiner_name if refiner_name is not None else ''
+                            }"
                         )
                     else:
                         print(
-                            f"refiner: {refiner_name if refiner_name is not None else ''}"
+                            f"refiner: {
+                                refiner_name if refiner_name is not None else ''
+                            }"
                         )
                         print(
-                            f"refiner_clip_skip: {refiner_clip_skip if refiner_clip_skip is not None else ''}"
+                            f"refiner_clip_skip: {
+                                refiner_clip_skip
+                                if refiner_clip_skip is not None
+                                else ''
+                            }"
                         )
                         print(
                             f"+ascore: {pos_ascore if pos_ascore is not None else ''}"
@@ -3619,13 +3635,25 @@ class TSC_KSampler:
 
                 if "ControlNet" in X_type or "ControlNet" in Y_type:
                     print(
-                        f"cnet_strength: {', '.join(cnet_strength) if isinstance(cnet_strength, list) else cnet_strength}"
+                        f"cnet_strength: {
+                            ', '.join(cnet_strength)
+                            if isinstance(cnet_strength, list)
+                            else cnet_strength
+                        }"
                     )
                     print(
-                        f"cnet_start%: {', '.join(cnet_start_pct) if isinstance(cnet_start_pct, list) else cnet_start_pct}"
+                        f"cnet_start%: {
+                            ', '.join(cnet_start_pct)
+                            if isinstance(cnet_start_pct, list)
+                            else cnet_start_pct
+                        }"
                     )
                     print(
-                        f"cnet_end%: {', '.join(cnet_end_pct) if isinstance(cnet_end_pct, list) else cnet_end_pct}"
+                        f"cnet_end%: {
+                            ', '.join(cnet_end_pct)
+                            if isinstance(cnet_end_pct, list)
+                            else cnet_end_pct
+                        }"
                     )
 
             # ______________________________________________________________________________________________________
@@ -3725,7 +3753,7 @@ class TSC_KSampler:
             latent_list = result
 
             # Store latent_list as last latent
-            ###update_value_by_id("latent", my_unique_id, latent_list)
+            # update_value_by_id("latent", my_unique_id, latent_list)
 
             # Calculate the dimensions of the white background image
             border_size_top = i_width // 15
@@ -3786,7 +3814,6 @@ class TSC_KSampler:
             )
 
             for row in range(num_rows):
-
                 # Initialize the X_offset
                 x_offset = x_offset_initial
 
@@ -3959,7 +3986,6 @@ class TSC_KSampler:
 # =======================================================================================================================
 # TSC KSampler Adv (Efficient)
 class TSC_KSamplerAdvanced(TSC_KSampler):
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -4075,7 +4101,6 @@ class TSC_KSamplerAdvanced(TSC_KSampler):
 # =======================================================================================================================
 # TSC KSampler SDXL (Efficient)
 class TSC_KSamplerSDXL(TSC_KSampler):
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -4244,7 +4269,6 @@ def print_xy_values(xy_type, xy_value, xy_name):
 # =======================================================================================================================
 # TSC XY Plot
 class TSC_XYplot:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -4332,7 +4356,9 @@ class TSC_XYplot:
         if X_type in encode_types or Y_type in encode_types:
             if dependencies is None:  # Not connected
                 print(
-                    f"{error('XY Plot Error:')} The dependencies input must be connected for certain plot types."
+                    f"{
+                        error('XY Plot Error:')
+                    } The dependencies input must be connected for certain plot types."
                 )
                 # Return None
                 return (None,)
@@ -4343,7 +4369,9 @@ class TSC_XYplot:
             Y_type in lora_types and X_type not in lora_types
         ):
             print(
-                f"{error('XY Plot Error:')} Both X and Y must be connected to use the 'LoRA Plot' node."
+                f"{
+                    error('XY Plot Error:')
+                } Both X and Y must be connected to use the 'LoRA Plot' node."
             )
             return (None,)
 
@@ -4408,7 +4436,6 @@ class TSC_XYplot:
 # =======================================================================================================================
 # TSC XY Plot: Seeds Values
 class TSC_XYplot_SeedsBatch:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -4436,7 +4463,6 @@ class TSC_XYplot_SeedsBatch:
 # =======================================================================================================================
 # TSC XY Plot: Add/Return Noise
 class TSC_XYplot_AddReturnNoise:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {"required": {"XY_type": (["add_noise", "return_with_leftover_noise"],)}}
@@ -4524,7 +4550,6 @@ class TSC_XYplot_Steps:
 # =======================================================================================================================
 # TSC XY Plot: CFG Values
 class TSC_XYplot_CFG:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -4607,7 +4632,6 @@ class TSC_XYplot_Sampler_Scheduler:
 # =======================================================================================================================
 # TSC XY Plot: Denoise Values
 class TSC_XYplot_Denoise:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -4641,7 +4665,6 @@ class TSC_XYplot_Denoise:
 # =======================================================================================================================
 # TSC XY Plot: VAE Values
 class TSC_XYplot_VAE:
-
     modes = ["VAE Names", "VAE Batch"]
 
     @classmethod
@@ -4730,7 +4753,6 @@ class TSC_XYplot_VAE:
 # =======================================================================================================================
 # TSC XY Plot: Prompt S/R
 class TSC_XYplot_PromptSR:
-
     @classmethod
     def INPUT_TYPES(cls):
         inputs = {
@@ -4775,7 +4797,7 @@ class TSC_XYplot_PromptSR:
             # Append additional entries based on replace_count
             xy_values.extend(
                 [
-                    (search_txt, kwargs.get(f"replace_{i+1}"))
+                    (search_txt, kwargs.get(f"replace_{i + 1}"))
                     for i in range(replace_count)
                 ]
             )
@@ -4786,7 +4808,6 @@ class TSC_XYplot_PromptSR:
 # =======================================================================================================================
 # TSC XY Plot: Aesthetic Score
 class TSC_XYplot_AScore:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -4824,7 +4845,6 @@ class TSC_XYplot_AScore:
 # =======================================================================================================================
 # TSC XY Plot: Refiner On/Off
 class TSC_XYplot_Refiner_OnOff:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -4850,7 +4870,6 @@ class TSC_XYplot_Refiner_OnOff:
 # =======================================================================================================================
 # TSC XY Plot: Clip Skip
 class TSC_XYplot_ClipSkip:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -5004,7 +5023,6 @@ class TSC_XYplot_Checkpoint:
 # =======================================================================================================================
 # TSC XY Plot: LoRA Batch (DISABLED)
 class TSC_XYplot_LoRA_Batch:
-
     @classmethod
     def INPUT_TYPES(cls):
 
@@ -5200,7 +5218,6 @@ class TSC_XYplot_LoRA:
 # =======================================================================================================================
 # TSC XY Plot: LoRA Plot
 class TSC_XYplot_LoRA_Plot:
-
     modes = [
         "X: LoRA Batch, Y: LoRA Weight",
         "X: LoRA Batch, Y: Model Strength",
@@ -5369,7 +5386,6 @@ class TSC_XYplot_LoRA_Plot:
 # =======================================================================================================================
 # TSC XY Plot: LoRA Stacks
 class TSC_XYplot_LoRA_Stacks:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -5418,7 +5434,6 @@ class TSC_XYplot_LoRA_Stacks:
 # =======================================================================================================================
 # TSC XY Plot: Control Net Strength (DISABLED)
 class TSC_XYplot_Control_Net_Strength:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -5514,7 +5529,6 @@ class TSC_XYplot_Control_Net_Strength:
 # =======================================================================================================================
 # TSC XY Plot: Control Net Start % (DISABLED)
 class TSC_XYplot_Control_Net_Start:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -5610,7 +5624,6 @@ class TSC_XYplot_Control_Net_Start:
 # =======================================================================================================================
 # TSC XY Plot: Control Net End % (DISABLED)
 class TSC_XYplot_Control_Net_End:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -5827,7 +5840,6 @@ class TSC_XYplot_Control_Net(
 # =======================================================================================================================
 # TSC XY Plot: Control Net Plot
 class TSC_XYplot_Control_Net_Plot:
-
     plot_types = [
         "X: Strength, Y: Start%",
         "X: Strength, Y: End%",
@@ -6057,7 +6069,6 @@ class TSC_XYplot_Control_Net_Plot:
 # =======================================================================================================================
 # TSC XY Plot: Manual Entry Notes
 class TSC_XYplot_Manual_XY_Entry_Info:
-
     syntax = (
         "(X/Y_types)     (X/Y_values)\n"
         "Seeds++ Batch   batch_count\n"
@@ -6113,7 +6124,6 @@ class TSC_XYplot_Manual_XY_Entry_Info:
 # =======================================================================================================================
 # TSC XY Plot: Manual Entry
 class TSC_XYplot_Manual_XY_Entry:
-
     plot_types = [
         "Nothing",
         "Seeds++ Batch",
@@ -6195,12 +6205,16 @@ class TSC_XYplot_Manual_XY_Entry:
                         x = bounds["Seeds++ Batch"]["max"]
                 except ValueError:
                     print(
-                        f"\033[31mXY Plot Error:\033[0m '{value}' is not a valid batch count."
+                        f"\033[31mXY Plot Error:\033[0m '{
+                            value
+                        }' is not a valid batch count."
                     )
                     return None
                 if float(value) != x:
                     print(
-                        f"\033[31mmXY Plot Error:\033[0m '{value}' is not a valid batch count."
+                        f"\033[31mmXY Plot Error:\033[0m '{
+                            value
+                        }' is not a valid batch count."
                     )
                     return None
                 return x
@@ -6216,7 +6230,9 @@ class TSC_XYplot_Manual_XY_Entry:
                     return x
                 except ValueError:
                     print(
-                        f"\033[31mXY Plot Error:\033[0m '{value}' is not a valid Step count."
+                        f"\033[31mXY Plot Error:\033[0m '{
+                            value
+                        }' is not a valid Step count."
                     )
                     return None
             # __________________________________________________________________________________________________________
@@ -6231,7 +6247,9 @@ class TSC_XYplot_Manual_XY_Entry:
                     return x
                 except ValueError:
                     print(
-                        f"\033[31mXY Plot Error:\033[0m '{value}' is not a valid Start Step."
+                        f"\033[31mXY Plot Error:\033[0m '{
+                            value
+                        }' is not a valid Start Step."
                     )
                     return None
             # __________________________________________________________________________________________________________
@@ -6246,7 +6264,9 @@ class TSC_XYplot_Manual_XY_Entry:
                     return x
                 except ValueError:
                     print(
-                        f"\033[31mXY Plot Error:\033[0m '{value}' is not a valid End Step."
+                        f"\033[31mXY Plot Error:\033[0m '{
+                            value
+                        }' is not a valid End Step."
                     )
                     return None
             # __________________________________________________________________________________________________________
@@ -6261,7 +6281,9 @@ class TSC_XYplot_Manual_XY_Entry:
                     return x
                 except ValueError:
                     print(
-                        f"\033[31mXY Plot Error:\033[0m '{value}' is not a number between {bounds['CFG Scale']['min']}"
+                        f"\033[31mXY Plot Error:\033[0m '{
+                            value
+                        }' is not a number between {bounds['CFG Scale']['min']}"
                         f" and {bounds['CFG Scale']['max']} for CFG Scale."
                     )
                     return None
@@ -6282,13 +6304,21 @@ class TSC_XYplot_Manual_XY_Entry:
                         if sampler not in bounds["Sampler"]["options"]:
                             valid_samplers = "\n".join(bounds["Sampler"]["options"])
                             print(
-                                f"\033[31mXY Plot Error:\033[0m '{sampler}' is not a valid sampler. Valid samplers are:\n{valid_samplers}"
+                                f"\033[31mXY Plot Error:\033[0m '{
+                                    sampler
+                                }' is not a valid sampler. Valid samplers are:\n{
+                                    valid_samplers
+                                }"
                             )
                             sampler = None
                         if scheduler not in bounds["Scheduler"]["options"]:
                             valid_schedulers = "\n".join(bounds["Scheduler"]["options"])
                             print(
-                                f"\033[31mXY Plot Error:\033[0m '{scheduler}' is not a valid scheduler. Valid schedulers are:\n{valid_schedulers}"
+                                f"\033[31mXY Plot Error:\033[0m '{
+                                    scheduler
+                                }' is not a valid scheduler. Valid schedulers are:\n{
+                                    valid_schedulers
+                                }"
                             )
                             scheduler = None
                         if sampler is None or scheduler is None:
@@ -6297,14 +6327,20 @@ class TSC_XYplot_Manual_XY_Entry:
                             return sampler, scheduler
                     else:
                         print(
-                            f"\033[31mXY Plot Error:\033[0m '{value}' is not a valid sampler.'"
+                            f"\033[31mXY Plot Error:\033[0m '{
+                                value
+                            }' is not a valid sampler.'"
                         )
                         return None
                 else:
                     if value not in bounds["Sampler"]["options"]:
                         valid_samplers = "\n".join(bounds["Sampler"]["options"])
                         print(
-                            f"\033[31mXY Plot Error:\033[0m '{value}' is not a valid sampler. Valid samplers are:\n{valid_samplers}"
+                            f"\033[31mXY Plot Error:\033[0m '{
+                                value
+                            }' is not a valid sampler. Valid samplers are:\n{
+                                valid_samplers
+                            }"
                         )
                         return None
                     else:
@@ -6315,7 +6351,11 @@ class TSC_XYplot_Manual_XY_Entry:
                 if value not in bounds["Scheduler"]["options"]:
                     valid_schedulers = "\n".join(bounds["Scheduler"]["options"])
                     print(
-                        f"\033[31mXY Plot Error:\033[0m '{value}' is not a valid Scheduler. Valid Schedulers are:\n{valid_schedulers}"
+                        f"\033[31mXY Plot Error:\033[0m '{
+                            value
+                        }' is not a valid Scheduler. Valid Schedulers are:\n{
+                            valid_schedulers
+                        }"
                     )
                     return None
                 else:
@@ -6332,7 +6372,9 @@ class TSC_XYplot_Manual_XY_Entry:
                     return x
                 except ValueError:
                     print(
-                        f"\033[31mXY Plot Error:\033[0m '{value}' is not a number between {bounds['Denoise']['min']} "
+                        f"\033[31mXY Plot Error:\033[0m '{
+                            value
+                        }' is not a number between {bounds['Denoise']['min']} "
                         f"and {bounds['Denoise']['max']} for Denoise."
                     )
                     return None
@@ -6342,7 +6384,9 @@ class TSC_XYplot_Manual_XY_Entry:
                 if value not in bounds["VAE"]["options"]:
                     valid_vaes = "\n".join(bounds["VAE"]["options"])
                     print(
-                        f"\033[31mXY Plot Error:\033[0m '{value}' is not a valid VAE. Valid VAEs are:\n{valid_vaes}"
+                        f"\033[31mXY Plot Error:\033[0m '{
+                            value
+                        }' is not a valid VAE. Valid VAEs are:\n{valid_vaes}"
                     )
                     return None
                 else:
@@ -6364,8 +6408,12 @@ class TSC_XYplot_Manual_XY_Entry:
                             )  # Convert the clip_skip to integer
                         except ValueError:
                             print(
-                                f"\033[31mXY Plot Error:\033[0m '{clip_skip}' is not a valid clip_skip. "
-                                f"Valid clip skip values are integers between {bounds['Clip Skip']['min']} and {bounds['Clip Skip']['max']}."
+                                f"\033[31mXY Plot Error:\033[0m '{
+                                    clip_skip
+                                }' is not a valid clip_skip. "
+                                f"Valid clip skip values are integers between {
+                                    bounds['Clip Skip']['min']
+                                } and {bounds['Clip Skip']['max']}."
                             )
                             return None
                         if checkpoint not in bounds["Checkpoint"]["options"]:
@@ -6373,7 +6421,11 @@ class TSC_XYplot_Manual_XY_Entry:
                                 bounds["Checkpoint"]["options"]
                             )
                             print(
-                                f"\033[31mXY Plot Error:\033[0m '{checkpoint}' is not a valid checkpoint. Valid checkpoints are:\n{valid_checkpoints}"
+                                f"\033[31mXY Plot Error:\033[0m '{
+                                    checkpoint
+                                }' is not a valid checkpoint. Valid checkpoints are:\n{
+                                    valid_checkpoints
+                                }"
                             )
                             checkpoint = None
                         if (
@@ -6381,8 +6433,12 @@ class TSC_XYplot_Manual_XY_Entry:
                             or clip_skip > bounds["Clip Skip"]["max"]
                         ):
                             print(
-                                f"\033[31mXY Plot Error:\033[0m '{clip_skip}' is not a valid clip skip. "
-                                f"Valid clip skip values are integers between {bounds['Clip Skip']['min']} and {bounds['Clip Skip']['max']}."
+                                f"\033[31mXY Plot Error:\033[0m '{
+                                    clip_skip
+                                }' is not a valid clip skip. "
+                                f"Valid clip skip values are integers between {
+                                    bounds['Clip Skip']['min']
+                                } and {bounds['Clip Skip']['max']}."
                             )
                             clip_skip = None
                         if checkpoint is None or clip_skip is None:
@@ -6391,14 +6447,20 @@ class TSC_XYplot_Manual_XY_Entry:
                             return checkpoint, clip_skip, None
                     else:
                         print(
-                            f"\033[31mXY Plot Error:\033[0m '{value}' is not a valid checkpoint.'"
+                            f"\033[31mXY Plot Error:\033[0m '{
+                                value
+                            }' is not a valid checkpoint.'"
                         )
                         return None
                 else:
                     if value not in bounds["Checkpoint"]["options"]:
                         valid_checkpoints = "\n".join(bounds["Checkpoint"]["options"])
                         print(
-                            f"\033[31mXY Plot Error:\033[0m '{value}' is not a valid checkpoint. Valid checkpoints are:\n{valid_checkpoints}"
+                            f"\033[31mXY Plot Error:\033[0m '{
+                                value
+                            }' is not a valid checkpoint. Valid checkpoints are:\n{
+                                valid_checkpoints
+                            }"
                         )
                         return None
                     else:
@@ -6415,7 +6477,9 @@ class TSC_XYplot_Manual_XY_Entry:
                     return x
                 except ValueError:
                     print(
-                        f"\033[31mXY Plot Error:\033[0m '{value}' is not a valid Clip Skip."
+                        f"\033[31mXY Plot Error:\033[0m '{
+                            value
+                        }' is not a valid Clip Skip."
                     )
                     return None
             # __________________________________________________________________________________________________________
@@ -6432,7 +6496,9 @@ class TSC_XYplot_Manual_XY_Entry:
                     if lora_name not in bounds["LoRA"]["options"]:
                         valid_loras = "\n".join(bounds["LoRA"]["options"])
                         print(
-                            f"{error('XY Plot Error:')} '{lora_name}' is not a valid LoRA. Valid LoRAs are:\n{valid_loras}"
+                            f"{error('XY Plot Error:')} '{
+                                lora_name
+                            }' is not a valid LoRA. Valid LoRAs are:\n{valid_loras}"
                         )
                         lora_name = None
 
@@ -6441,8 +6507,12 @@ class TSC_XYplot_Manual_XY_Entry:
                         clip_str = float(clip_str)
                     except ValueError:
                         print(
-                            f"{error('XY Plot Error:')} The LoRA model strength and clip strength values should be numbers"
-                            f" between {bounds['LoRA']['model_str']['min']} and {bounds['LoRA']['model_str']['max']}."
+                            f"{
+                                error('XY Plot Error:')
+                            } The LoRA model strength and clip strength values should be numbers"
+                            f" between {bounds['LoRA']['model_str']['min']} and {
+                                bounds['LoRA']['model_str']['max']
+                            }."
                         )
                         return None
 
@@ -6451,8 +6521,12 @@ class TSC_XYplot_Manual_XY_Entry:
                         or model_str > bounds["LoRA"]["model_str"]["max"]
                     ):
                         print(
-                            f"{error('XY Plot Error:')} '{model_str}' is not a valid LoRA model strength value. "
-                            f"Valid lora model strength values are between {bounds['LoRA']['model_str']['min']} and {bounds['LoRA']['model_str']['max']}."
+                            f"{error('XY Plot Error:')} '{
+                                model_str
+                            }' is not a valid LoRA model strength value. "
+                            f"Valid lora model strength values are between {
+                                bounds['LoRA']['model_str']['min']
+                            } and {bounds['LoRA']['model_str']['max']}."
                         )
                         model_str = None
 
@@ -6461,8 +6535,12 @@ class TSC_XYplot_Manual_XY_Entry:
                         or clip_str > bounds["LoRA"]["clip_str"]["max"]
                     ):
                         print(
-                            f"{error('XY Plot Error:')} '{clip_str}' is not a valid LoRA clip strength value. "
-                            f"Valid lora clip strength values are between {bounds['LoRA']['clip_str']['min']} and {bounds['LoRA']['clip_str']['max']}."
+                            f"{error('XY Plot Error:')} '{
+                                clip_str
+                            }' is not a valid LoRA clip strength value. "
+                            f"Valid lora clip strength values are between {
+                                bounds['LoRA']['clip_str']['min']
+                            } and {bounds['LoRA']['clip_str']['max']}."
                         )
                         clip_str = None
 
@@ -6474,7 +6552,9 @@ class TSC_XYplot_Manual_XY_Entry:
                     if value not in bounds["LoRA"]["options"]:
                         valid_loras = "\n".join(bounds["LoRA"]["options"])
                         print(
-                            f"{error('XY Plot Error:')} '{value}' is not a valid LoRA. Valid LoRAs are:\n{valid_loras}"
+                            f"{error('XY Plot Error:')} '{
+                                value
+                            }' is not a valid LoRA. Valid LoRAs are:\n{valid_loras}"
                         )
                         return None
                     else:
@@ -6487,7 +6567,9 @@ class TSC_XYplot_Manual_XY_Entry:
         # Validate plot_value array length is 1 if doing a "Seeds++ Batch"
         if len(plot_value) != 1 and plot_type == "Seeds++ Batch":
             print(
-                f"{error('XY Plot Error:')} '{';'.join(plot_value)}' is not a valid batch count."
+                f"{error('XY Plot Error:')} '{
+                    ';'.join(plot_value)
+                }' is not a valid batch count."
             )
             return (None,)
 
@@ -6540,7 +6622,6 @@ class TSC_XYplot_Manual_XY_Entry:
 # =======================================================================================================================
 # TSC XY Plot: Join Inputs
 class TSC_XYplot_JoinInputs:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -6578,7 +6659,6 @@ class TSC_XYplot_JoinInputs:
 ########################################################################################################################
 # TSC Image Overlay
 class TSC_ImageOverlay:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -6747,7 +6827,6 @@ class TSC_ImageOverlay:
 
 # TSC Noise Sources & Variations Script
 class TSC_Noise_Control_Script:
-
     @classmethod
     def INPUT_TYPES(cls):
         return {
@@ -6798,7 +6877,6 @@ if os.path.exists(os.path.join(custom_nodes_dir, "comfyui_controlnet_aux")):
 
 # TSC HighRes-Fix with model latent upscalers (https://github.com/city96/SD-Latent-Upscaler)
 class TSC_HighRes_Fix:
-
     default_latent_upscalers = LatentUpscaleBy.INPUT_TYPES()["required"][
         "upscale_method"
     ][0]
@@ -6927,8 +7005,14 @@ class TSC_HighRes_Fix:
                     if upscale_by != nearest_scaling_raw:
                         print(
                             f"{warning('HighRes-Fix Warning:')} "
-                            f"When using 'city96.{latent_upscaler}', 'upscale_by' must be one of {self.city96_scalings_raw}.\n"
-                            f"Rounding to the nearest valid value ({nearest_scaling_raw}).\033[0m"
+                            f"When using 'city96.{
+                                latent_upscaler
+                            }', 'upscale_by' must be one of {
+                                self.city96_scalings_raw
+                            }.\n"
+                            f"Rounding to the nearest valid value ({
+                                nearest_scaling_raw
+                            }).\033[0m"
                         )
                         upscale_by = nearest_scaling_raw
 
@@ -6942,8 +7026,12 @@ class TSC_HighRes_Fix:
                     if upscale_by != upscale_by_clamped:
                         print(
                             f"{warning('HighRes-Fix Warning:')} "
-                            f"When using 'ttl_nn.{latent_upscaler}', 'upscale_by' must be between 1 and 2.\n"
-                            f"Rounding to the nearest valid value ({upscale_by_clamped}).\033[0m"
+                            f"When using 'ttl_nn.{
+                                latent_upscaler
+                            }', 'upscale_by' must be between 1 and 2.\n"
+                            f"Rounding to the nearest valid value ({
+                                upscale_by_clamped
+                            }).\033[0m"
                         )
                     upscale_by = upscale_by_clamped
 
@@ -6957,7 +7045,9 @@ class TSC_HighRes_Fix:
                     latent_upscale_function = LatentUpscaleBy
                     latent_upscaler = self.default_latent_upscalers[0]
                     print(
-                        f"{warning('HiResFix Script Warning:')} Chosen latent upscale method not found! "
+                        f"{
+                            warning('HiResFix Script Warning:')
+                        } Chosen latent upscale method not found! "
                         f"defaulting to '{latent_upscaler}'.\n"
                     )
 
@@ -7117,6 +7207,76 @@ class TSC_LoRA_Stack2String:
         return (output,)
 
 
+class StringListToWildcards:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "strings": ("STRING",),
+            }
+        }
+
+    INPUT_IS_LIST = True
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("string",)
+    FUNCTION = "convert"
+    CATEGORY = "Efficiency Nodes/utils"
+
+    def convert(self, strings):
+        strings = strings[0]
+        if not isinstance(strings, list):
+            strings = [strings]
+
+        res = "|\n".join(strings)
+        return (f"{{{res}}}",)
+
+
+class PickImageWithPrompt:
+    # 从图片内读取prompt并用正则匹配取出需要的部分
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "path": ("STRING", {"default": ""}),
+                "pattern": ("STRING", {"default": ""}),
+            }
+        }
+
+    INPUT_IS_LIST = True
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("prompts",)
+    FUNCTION = "load_pmpts"
+    CATEGORY = "Efficiency Nodes/utils"
+
+    def load_pmpts(self, path, pattern):
+        output_pmpts = []
+        if not path or not pattern:
+            return (output_pmpts,)
+
+        if isinstance(pattern, list):
+            pattern = pattern[0]
+        if isinstance(path, list):
+            path = path[0]
+
+        import re
+
+        imgs = [os.path.join(path, img) for img in os.listdir(path)]
+        imgs = [img for img in imgs if os.path.isfile(img)]
+
+        for img in sorted(imgs):
+            i = node_helpers.pillow(Image.open, img)
+            parameters = i.info.get("parameters", "")
+            if parameters:
+                m = re.search(pattern, parameters)
+                if m and m.groups():
+                    text = ",".join(m.groups())
+                    text.replace("\\\\\\\\", "\\")
+                    text.replace("\\\\", "\\")
+                    output_pmpts.append(text)
+
+        return (output_pmpts,)
+
+
 def unique_by(s):
     if len(s) == 0:
         return []
@@ -7186,13 +7346,17 @@ class ImageWithPrompt(LoadImage):
     @classmethod
     def INPUT_TYPES(s):
         input_dir = folder_paths.get_input_directory()
-        files = [f for f in os.listdir(input_dir) if os.path.isfile(os.path.join(input_dir, f))]
+        files = [
+            f
+            for f in os.listdir(input_dir)
+            if os.path.isfile(os.path.join(input_dir, f))
+        ]
         files = folder_paths.filter_files_content_types(files, ["image"])
-        return {"required":
-                    {"image": (sorted(files), {"image_upload": True})},
-                }
+        return {
+            "required": {"image": (sorted(files), {"image_upload": True})},
+        }
 
-    CATEGORY = "image" 
+    CATEGORY = "image"
     RETURN_TYPES = ("IMAGE", "MASK", "STRING", "STRING")
     RETURN_NAMES = ("image", "mask", "positive", "negative")
 
@@ -7214,7 +7378,7 @@ class ImageWithPrompt(LoadImage):
         for i in ImageSequence.Iterator(img):
             i = node_helpers.pillow(ImageOps.exif_transpose, i)
 
-            if i.mode == 'I':
+            if i.mode == "I":
                 i = i.point(lambda i: i * (1 / 255))
             image = i.convert("RGB")
 
@@ -7225,27 +7389,32 @@ class ImageWithPrompt(LoadImage):
             if image.size[0] != w or image.size[1] != h:
                 continue
 
-            parameters = i.info.get('parameters', '')
+            parameters = i.info.get("parameters", "")
             if parameters:
                 positive_prompt = parameters.split("\n")[0]
-                negative_prompt = parameters.split("Negative prompt: ")[-1].split("\n")[0]
+                negative_prompt = parameters.split("Negative prompt: ")[-1].split("\n")[
+                    0
+                ]
 
                 output_pos.append(positive_prompt.strip())
                 output_neg.append(negative_prompt.strip())
             else:
-                output_pos.append('')
-                output_neg.append('')
+                output_pos.append("")
+                output_neg.append("")
 
             image = np.array(image).astype(np.float32) / 255.0
             image = torch.from_numpy(image)[None,]
-            if 'A' in i.getbands():
-                mask = np.array(i.getchannel('A')).astype(np.float32) / 255.0
-                mask = 1. - torch.from_numpy(mask)
-            elif i.mode == 'P' and 'transparency' in i.info:
-                mask = np.array(i.convert('RGBA').getchannel('A')).astype(np.float32) / 255.0
-                mask = 1. - torch.from_numpy(mask)
+            if "A" in i.getbands():
+                mask = np.array(i.getchannel("A")).astype(np.float32) / 255.0
+                mask = 1.0 - torch.from_numpy(mask)
+            elif i.mode == "P" and "transparency" in i.info:
+                mask = (
+                    np.array(i.convert("RGBA").getchannel("A")).astype(np.float32)
+                    / 255.0
+                )
+                mask = 1.0 - torch.from_numpy(mask)
             else:
-                mask = torch.zeros((64,64), dtype=torch.float32, device="cpu")
+                mask = torch.zeros((64, 64), dtype=torch.float32, device="cpu")
             output_images.append(image)
             output_masks.append(mask.unsqueeze(0))
 
@@ -7261,14 +7430,22 @@ class ImageWithPrompt(LoadImage):
 
         return (output_image, output_mask, output_pos, output_neg)
 
+
 def uov_tiled_size(width, height, upscale_by, tiled_block=2048):
     import math
 
-    tiled_size = lambda x, p: int(x*p) if int(x*p) < tiled_block else int(int(x*p)/math.ceil(int(x*p)/tiled_block))
+    def tiled_size(x, p):
+        return (
+            int(x * p)
+            if int(x * p) < tiled_block
+            else int(int(x * p) / math.ceil(int(x * p) / tiled_block))
+        )
+
     upscale_by = upscale_by if upscale_by < 4.0 else 4.0
     tiled_width = ((tiled_size(width, upscale_by) + 15) // 16) * 16
     tiled_height = ((tiled_size(height, upscale_by) + 15) // 16) * 16
     return upscale_by, tiled_width, tiled_height
+
 
 class SDupscaleTiledSize:
     def __init__(self):
@@ -7279,8 +7456,14 @@ class SDupscaleTiledSize:
         return {
             "required": {
                 "image": ("IMAGE",),
-                "tiled_block": ("INT", {"default": 1536, "min": 512, "max": 2048, "step": 256}),
-                "upscale_by": ("FLOAT", {"default": 1.0, "min": 0.5, "max": 4.0, "step": 0.1}),
+                "tiled_block": (
+                    "INT",
+                    {"default": 1536, "min": 512, "max": 2048, "step": 256},
+                ),
+                "upscale_by": (
+                    "FLOAT",
+                    {"default": 1.0, "min": 0.5, "max": 4.0, "step": 0.1},
+                ),
             }
         }
 
@@ -7300,6 +7483,7 @@ class SDupscaleTiledSize:
 
         return (image, upscale_by, tiled_width, tiled_height)
 
+
 ########################################################################################################################
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
@@ -7308,6 +7492,8 @@ NODE_CLASS_MAPPINGS = {
     "OrganizePrompt": OrganizePrompt,
     "ImageWithPrompt": ImageWithPrompt,
     "SDupscaleTiledSize": SDupscaleTiledSize,
+    "PickImageWithPrompt": PickImageWithPrompt,
+    "StringListToWildcards": StringListToWildcards,
     "KSampler SDXL (Eff.)": TSC_KSamplerSDXL,
     "Efficient Loader": TSC_EfficientLoader,
     "Eff. Loader SDXL": TSC_EfficientLoaderSDXL,
@@ -7568,7 +7754,8 @@ try:
             }  # Define the variables for the expression
 
             functions = simpleeval.DEFAULT_FUNCTIONS.copy()
-            functions.update({"len": len})  # Add the functions for the expression
+            # Add the functions for the expression
+            functions.update({"len": len})
 
             result = simpleeval.simple_eval(
                 python_expression, names=variables, functions=functions
@@ -7577,7 +7764,8 @@ try:
                 print(f"\n{error('Evaluate Strings:')}")
                 print(f"\033[90ma = {a} \nb = {b} \nc = {c}\033[0m")
                 print(f"{python_expression} = \033[92m" + str(result) + "\033[0m")
-            return (str(result),)  # Convert result to a string before returning
+            # Convert result to a string before returning
+            return (str(result),)
 
     # ==================================================================================================================
     # TSC Simple Eval Examples
@@ -7604,5 +7792,7 @@ try:
 
 except ImportError:
     print(
-        f"{warning('Efficiency Nodes Warning:')} Failed to import python package 'simpleeval'; related nodes disabled.\n"
+        f"{
+            warning('Efficiency Nodes Warning:')
+        } Failed to import python package 'simpleeval'; related nodes disabled.\n"
     )
