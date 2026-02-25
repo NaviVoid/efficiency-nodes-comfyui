@@ -7207,6 +7207,93 @@ class TSC_LoRA_Stack2String:
         return (output,)
 
 
+class MosaicMask:
+    # 使用mask进行打码
+    def __init__(self):
+        pass
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "mask": ("MASK",),
+                "size": ("INT", {"default": 3, "min": 0, "max": 100, "step": 1}),
+                "use_cv2": ("BOOLEAN", {"default": False}),
+            }
+        }
+
+    RETURN_TYPES = ("IMAGE",)
+    RETURN_NAMES = ("image",)
+    FUNCTION = "mosaic"
+    CATEGORY = "Efficiency Nodes/utils"
+
+    def mosaic(self, image, mask, size, use_cv2):
+        base_image_list = torch.unbind(image, dim=0)
+        processed_base_image_list = []
+
+        for tensor, m_tensor in zip(base_image_list, mask):
+            img = tensor2pil(tensor).convert("RGB")
+            mak = tensor2pil(m_tensor).convert("L")
+
+            # Apply mosaic blur to the entire image
+            if use_cv2:
+                blurred = self.mosaic_blur_cv2(img, size)
+            else:
+                blurred = self.mosaic_blur_pillow(img, size)
+
+            # Use mask to composite: blurred where mask is white, original where black
+            result = Image.composite(blurred, img, mak)
+
+            processed_tensor = pil2tensor(result)
+            processed_base_image_list.append(processed_tensor)
+
+        # Combine the processed images back into a single tensor
+        base_image = torch.stack(
+            [tensor.squeeze() for tensor in processed_base_image_list]
+        )
+
+        # Return the edited base image
+        return (base_image,)
+
+    def mosaic_blur_pillow(self, image, block_size):
+        """Applies a mosaic blur to an image using Pillow."""
+        if block_size <= 0:
+            return image.copy()
+
+        width, height = image.size
+        new_image = Image.new(image.mode, (width, height))
+
+        for x in range(0, width, block_size):
+            for y in range(0, height, block_size):
+                box = (x, y, min(x + block_size, width), min(y + block_size, height))
+                region = image.crop(box)
+                color = region.resize(
+                    (1, 1), resample=Image.Resampling.NEAREST
+                ).getpixel((0, 0))
+                new_image.paste(color, box)
+
+        return new_image
+
+    def mosaic_blur_cv2(self, image, block_size):
+        """Applies a mosaic blur to an image using OpenCV."""
+        import cv2
+
+        if block_size <= 0:
+            return image.copy()
+
+        img = np.array(image)
+        h, w = img.shape[:2]
+        # Downscale then upscale with nearest-neighbor to create mosaic effect
+        small = cv2.resize(
+            img,
+            (max(w // block_size, 1), max(h // block_size, 1)),
+            interpolation=cv2.INTER_NEAREST,
+        )
+        result = cv2.resize(small, (w, h), interpolation=cv2.INTER_NEAREST)
+        return Image.fromarray(result, image.mode)
+
+
 class StringListToWildcards:
     @classmethod
     def INPUT_TYPES(s):
@@ -7494,6 +7581,7 @@ NODE_CLASS_MAPPINGS = {
     "SDupscaleTiledSize": SDupscaleTiledSize,
     "PickImageWithPrompt": PickImageWithPrompt,
     "StringListToWildcards": StringListToWildcards,
+    "Eff MosaicMask": MosaicMask,
     "KSampler SDXL (Eff.)": TSC_KSamplerSDXL,
     "Efficient Loader": TSC_EfficientLoader,
     "Eff. Loader SDXL": TSC_EfficientLoaderSDXL,
