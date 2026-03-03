@@ -7461,8 +7461,8 @@ class ImageWithPrompt(LoadImage):
         }
 
     CATEGORY = "image"
-    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "STRING")
-    RETURN_NAMES = ("image", "mask", "positive", "negative")
+    RETURN_TYPES = ("IMAGE", "MASK", "STRING", "STRING", "STRING")
+    RETURN_NAMES = ("image", "mask", "positive", "negative", "metadata")
 
     FUNCTION = "load_image"
 
@@ -7477,6 +7477,7 @@ class ImageWithPrompt(LoadImage):
         output_masks = []
         output_pos = []
         output_neg = []
+        output_mtd = []
         w, h = None, None
 
         for i in ImageSequence.Iterator(img):
@@ -7502,9 +7503,11 @@ class ImageWithPrompt(LoadImage):
 
                 output_pos.append(positive_prompt.strip())
                 output_neg.append(negative_prompt.strip())
+                output_mtd.append(parameters)
             else:
                 output_pos.append("")
                 output_neg.append("")
+                output_mtd.append("")
 
             image = np.array(image).astype(np.float32) / 255.0
             image = torch.from_numpy(image)[None,]
@@ -7532,7 +7535,7 @@ class ImageWithPrompt(LoadImage):
             output_image = output_images[0]
             output_mask = output_masks[0]
 
-        return (output_image, output_mask, output_pos, output_neg)
+        return (output_image, output_mask, output_pos, output_neg, output_mtd)
 
 
 def uov_tiled_size(width, height, upscale_by, tiled_block=2048):
@@ -7738,7 +7741,6 @@ NODE_CLASS_MAPPINGS = {
     "SDupscaleTiledSize": SDupscaleTiledSize,
     "PickImageWithPrompt": PickImageWithPrompt,
     "StringListToWildcards": StringListToWildcards,
-    "ImageWithMetadata": ImageWithMetadata,
     "SaveImageWithMetadata": SaveImageWithMetadata,
     "Eff MosaicMask": MosaicMask,
     "KSampler SDXL (Eff.)": TSC_KSamplerSDXL,

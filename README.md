@@ -22,15 +22,11 @@ Unique and format prompt text.
 
 - ImageWithPrompt
 
-Load image with positive prompt and negative prompt, only support standard sd webui format metadata.
+Load image with positive prompt and negative prompt and raw metadata, only support standard sd webui format metadata.
 
 - SDupscaleTiledSize
 
 Auto calculate tile size for Ultimate SDupscaler.
-
-- ImageWithMetadata
-
-Load image with raw metadata, only support standard sd webui format metadata.
 
 - SaveImageWithMetadata
 
