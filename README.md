@@ -27,3 +27,11 @@ Load image with positive prompt and negative prompt, only support standard sd we
 - SDupscaleTiledSize
 
 Auto calculate tile size for Ultimate SDupscaler.
+
+- ImageWithMetadata
+
+Load image with raw metadata, only support standard sd webui format metadata.
+
+- SaveImageWithMetadata
+
+Work with ImageWithMetadata, useful for small place fix and save.

@@ -22,23 +22,40 @@ import psutil
 import torch
 from comfy import samplers
 from comfy_extras.nodes_align_your_steps import AlignYourStepsScheduler
-from comfy_extras.nodes_clip_sdxl import (CLIPTextEncodeSDXL,
-                                          CLIPTextEncodeSDXLRefiner)
+from comfy_extras.nodes_clip_sdxl import CLIPTextEncodeSDXL, CLIPTextEncodeSDXLRefiner
 from comfy_extras.nodes_gits import GITSScheduler
-from comfy_extras.nodes_upscale_model import (ImageUpscaleWithModel,
-                                              UpscaleModelLoader)
-from nodes import (MAX_RESOLUTION, CLIPSetLastLayer, CLIPTextEncode,
-                   ControlNetApply, ControlNetApplyAdvanced, ControlNetLoader,
-                   ImageScaleBy, KSampler, KSamplerAdvanced, LatentUpscaleBy,
-                   LoadImage, PreviewImage, VAEDecode, VAEDecodeTiled,
-                   VAEEncode, VAEEncodeTiled)
+from comfy_extras.nodes_upscale_model import ImageUpscaleWithModel, UpscaleModelLoader
+from nodes import (
+    MAX_RESOLUTION,
+    CLIPSetLastLayer,
+    CLIPTextEncode,
+    ControlNetApply,
+    ControlNetApplyAdvanced,
+    ControlNetLoader,
+    ImageScaleBy,
+    KSampler,
+    KSamplerAdvanced,
+    LatentUpscaleBy,
+    LoadImage,
+    PreviewImage,
+    VAEDecode,
+    VAEDecodeTiled,
+    VAEEncode,
+    VAEEncodeTiled,
+)
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageSequence
 from PIL.PngImagePlugin import PngInfo
 from torch import Tensor
 
-from .py import (bnk_adv_encode, bnk_tiled_samplers, cg_mixed_seed_noise,
-                 city96_latent_upscaler, smZ_cfg_denoiser, smZ_rng_source,
-                 ttl_nn_latent_upscaler)
+from .py import (
+    bnk_adv_encode,
+    bnk_tiled_samplers,
+    cg_mixed_seed_noise,
+    city96_latent_upscaler,
+    smZ_cfg_denoiser,
+    smZ_rng_source,
+    ttl_nn_latent_upscaler,
+)
 from .tsc_utils import *
 
 # Get the absolute path of various directories
@@ -7557,7 +7574,7 @@ class SDupscaleTiledSize:
     RETURN_TYPES = ("IMAGE", "FLOAT", "INT", "INT")
     RETURN_NAMES = ("output_image", "upscale_by", "tiled_width", "tiled_height")
     FUNCTION = "calculate_tiled_size"
-    CATEGORY = "image/upscaling"
+    CATEGORY = "Efficiency Nodes/utils"
 
     def calculate_tiled_size(self, image, tiled_block, upscale_by):
 
@@ -7571,6 +7588,146 @@ class SDupscaleTiledSize:
         return (image, upscale_by, tiled_width, tiled_height)
 
 
+class SaveImageWithMetadata:
+    def __init__(self):
+        self.output_dir = folder_paths.get_output_directory()
+        self.type = "output"
+        self.prefix_append = ""
+        self.compress_level = 4
+
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "filename_prefix": ("STRING", {"default": "ComfyUI"}),
+                "metadata": ("STRING", {"default": ""}),
+            },
+        }
+
+    RETURN_TYPES = ()
+    FUNCTION = "save"
+    OUTPUT_NODE = True
+    CATEGORY = "Efficiency Nodes/utils"
+
+    def save(self, image, filename_prefix="ComfyUI", metadata=""):
+        filename_prefix += self.prefix_append
+        full_output_folder, filename, counter, subfolder, filename_prefix = (
+            folder_paths.get_save_image_path(
+                filename_prefix, self.output_dir, image.shape[1], image.shape[0]
+            )
+        )
+
+        if isinstance(image, list):
+            image = image[0]
+
+        if isinstance(metadata, list):
+            metadata = metadata[0]
+
+        img = tensor2pil(image).convert("RGB")
+        pnginfo = PngInfo()
+        pnginfo.add_text("parameters", metadata)
+
+        file = f"{filename}_{counter:05}_.png"
+        img.save(
+            os.path.join(full_output_folder, file),
+            pnginfo=pnginfo,
+            compress_level=self.compress_level,
+        )
+        return {
+            "ui": {
+                "images": {"filename": file, "subfolder": subfolder, "type": self.type}
+            }
+        }
+
+
+class ImageWithMetadata:
+    @classmethod
+    def INPUT_TYPES(s):
+        input_dir = folder_paths.get_input_directory()
+        files = [
+            f
+            for f in os.listdir(input_dir)
+            if os.path.isfile(os.path.join(input_dir, f))
+        ]
+        files = folder_paths.filter_files_content_types(files, ["image"])
+        return {
+            "required": {"image": (sorted(files), {"image_upload": True})},
+        }
+
+    CATEGORY = "image"
+    RETURN_TYPES = (
+        "IMAGE",
+        "MASK",
+        "STRING",
+    )
+    RETURN_NAMES = (
+        "image",
+        "mask",
+        "metadata",
+    )
+    FUNCTION = "load_image"
+    CATEGORY = "Efficiency Nodes/utils"
+
+    def load_image(self, image):
+        image_path = folder_paths.get_annotated_filepath(image)
+
+        img = node_helpers.pillow(Image.open, image_path)
+
+        output_images = []
+        output_masks = []
+        output_metadata = []
+        w, h = None, None
+
+        for i in ImageSequence.Iterator(img):
+            i = node_helpers.pillow(ImageOps.exif_transpose, i)
+
+            if i.mode == "I":
+                i = i.point(lambda i: i * (1 / 255))
+            image = i.convert("RGB")
+
+            if len(output_images) == 0:
+                w = image.size[0]
+                h = image.size[1]
+
+            if image.size[0] != w or image.size[1] != h:
+                continue
+
+            parameters = i.info.get("parameters", "")
+            if parameters:
+                output_metadata.append(parameters.strip())
+            else:
+                output_metadata.append("")
+
+            image = np.array(image).astype(np.float32) / 255.0
+            image = torch.from_numpy(image)[None,]
+            if "A" in i.getbands():
+                mask = np.array(i.getchannel("A")).astype(np.float32) / 255.0
+                mask = 1.0 - torch.from_numpy(mask)
+            elif i.mode == "P" and "transparency" in i.info:
+                mask = (
+                    np.array(i.convert("RGBA").getchannel("A")).astype(np.float32)
+                    / 255.0
+                )
+                mask = 1.0 - torch.from_numpy(mask)
+            else:
+                mask = torch.zeros((64, 64), dtype=torch.float32, device="cpu")
+            output_images.append(image)
+            output_masks.append(mask.unsqueeze(0))
+
+            if img.format == "MPO":
+                break  # ignore all frames except the first one for MPO format
+
+        if len(output_images) > 1:
+            output_image = torch.cat(output_images, dim=0)
+            output_mask = torch.cat(output_masks, dim=0)
+        else:
+            output_image = output_images[0]
+            output_mask = output_masks[0]
+
+        return (output_image, output_mask, output_metadata)
+
+
 ########################################################################################################################
 # NODE MAPPING
 NODE_CLASS_MAPPINGS = {
@@ -7581,6 +7738,8 @@ NODE_CLASS_MAPPINGS = {
     "SDupscaleTiledSize": SDupscaleTiledSize,
     "PickImageWithPrompt": PickImageWithPrompt,
     "StringListToWildcards": StringListToWildcards,
+    "ImageWithMetadata": ImageWithMetadata,
+    "SaveImageWithMetadata": SaveImageWithMetadata,
     "Eff MosaicMask": MosaicMask,
     "KSampler SDXL (Eff.)": TSC_KSamplerSDXL,
     "Efficient Loader": TSC_EfficientLoader,
