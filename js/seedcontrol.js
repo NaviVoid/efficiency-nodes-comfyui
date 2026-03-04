@@ -1,5 +1,4 @@
 import { app } from "../../scripts/app.js";
-import { addMenuHandler } from "./node_options/common/utils.js";
 
 const LAST_SEED_BUTTON_LABEL = '🎲 Randomize / ♻️ Last Queued Seed';
 const SEED_BEHAVIOR_RANDOMIZE = 'Randomize';
@@ -47,12 +46,12 @@ class SeedControl {
 
         this.lastSeedButton = this.node.addWidget("button", LAST_SEED_BUTTON_LABEL, null, () => {
             const isValidValue = Number.isInteger(this.seedWidget.value) && this.seedWidget.value >= min && this.seedWidget.value <= max;
-            
+
             // Special case: if the current label is the default and seed value is -1
             if (this.lastSeedButton.name === LAST_SEED_BUTTON_LABEL && this.seedWidget.value == -1) {
                 return; // Do nothing and return early
             }
-            
+
             if (isValidValue && this.seedWidget.value != -1) {
                 this.lastSeed = this.seedWidget.value;
                 this.seedWidget.value = -1;
@@ -61,7 +60,7 @@ class SeedControl {
             } else {
                 this.seedWidget.value = -1; // Set to -1 if the label didn't update due to a seed value issue
             }
-            
+
             if (isValidValue) {
                 this.updateButtonLabel(); // Update the button label to reflect the change
             }
@@ -176,70 +175,11 @@ class SeedControl {
 
 }
 
-function showSeedBehaviorMenu(value, options, e, menu, node) {
-    const behaviorOptions = [
-        {
-            content: "🎲 Randomize",
-            callback: () => {
-                node.seedControl.setBehavior('randomize');
-            }
-        },
-        {
-            content: "➕ Increment",
-            callback: () => {
-                node.seedControl.setBehavior('increment');
-            }
-        },
-        {
-            content: "➖ Decrement",
-            callback: () => {
-                node.seedControl.setBehavior('decrement');
-            }
-        }
-    ];
-
-    new LiteGraph.ContextMenu(behaviorOptions, {
-        event: e,
-        callback: null,
-        parentMenu: menu,
-        node: node
-    });
-
-    return false;  // This ensures the original context menu doesn't proceed
-}
-
 // Extension Definition
 app.registerExtension({
     name: "efficiency.seedcontrol",
     async beforeRegisterNodeDef(nodeType, nodeData, _app) {
         if (NODE_WIDGET_MAP[nodeData.name]) {
-            addMenuHandler(nodeType, function (insertOption) {
-                // Check conditions before showing the seed behavior option
-                let showSeedOption = true;
-
-                if (nodeData.name === "Noise Control Script") {
-                    // Check for 'add_seed_noise' widget being false
-                    const addSeedNoiseWidget = this.widgets.find(w => w.name === 'add_seed_noise');
-                    if (addSeedNoiseWidget && !addSeedNoiseWidget.value) {
-                        showSeedOption = false;
-                    }
-                } else if (nodeData.name === "HighRes-Fix Script") {
-                    // Check for 'use_same_seed' widget being true
-                    const useSameSeedWidget = this.widgets.find(w => w.name === 'use_same_seed');
-                    if (useSameSeedWidget && useSameSeedWidget.value) {
-                        showSeedOption = false;
-                    }
-                }
-
-                if (showSeedOption) {
-                    insertOption({
-                        content: "🌱 Seed behavior...",
-                        has_submenu: true,
-                        callback: showSeedBehaviorMenu
-                    });
-                }
-            });
-            
             const onNodeCreated = nodeType.prototype.onNodeCreated;
             nodeType.prototype.onNodeCreated = function () {
                 onNodeCreated ? onNodeCreated.apply(this, []) : undefined;
@@ -247,5 +187,37 @@ app.registerExtension({
                 this.seedControl.seedWidget.value = -1;
             };
         }
+    },
+    getNodeMenuItems(node) {
+        if (!NODE_WIDGET_MAP[node.comfyClass]) return [];
+
+        // Check conditions before showing the seed behavior option
+        if (node.comfyClass === "Noise Control Script") {
+            const addSeedNoiseWidget = node.widgets.find(w => w.name === 'add_seed_noise');
+            if (addSeedNoiseWidget && !addSeedNoiseWidget.value) return [];
+        } else if (node.comfyClass === "HighRes-Fix Script") {
+            const useSameSeedWidget = node.widgets.find(w => w.name === 'use_same_seed');
+            if (useSameSeedWidget && useSameSeedWidget.value) return [];
+        }
+
+        return [{
+            content: "🌱 Seed behavior...",
+            submenu: {
+                options: [
+                    {
+                        content: "🎲 Randomize",
+                        callback: () => { node.seedControl.setBehavior('randomize'); }
+                    },
+                    {
+                        content: "➕ Increment",
+                        callback: () => { node.seedControl.setBehavior('increment'); }
+                    },
+                    {
+                        content: "➖ Decrement",
+                        callback: () => { node.seedControl.setBehavior('decrement'); }
+                    }
+                ]
+            }
+        }];
     },
 });

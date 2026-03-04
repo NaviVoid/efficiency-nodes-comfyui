@@ -1,5 +1,4 @@
 import { app } from "../../../scripts/app.js";
-import { addMenuHandler } from "./common/utils.js";
 
 function replaceNode(oldNode, newNodeName) {
     const newNode = LiteGraph.createNode(newNodeName);
@@ -53,48 +52,24 @@ function replaceNode(oldNode, newNodeName) {
     app.graph.remove(oldNode);
 }
 
-function replaceNodeMenuCallback(currentNode, targetNodeName) {
-    return function() {
-        replaceNode(currentNode, targetNodeName);
-    };
-}
-
-function showSwapMenu(value, options, e, menu, node) {
-    const scriptNodes = [
-        "XY Plot",
-        "Noise Control Script",
-        "HighRes-Fix Script",
-        "Tiled Upscaler Script",
-        "AnimateDiff Script"
-    ];
-
-    const swapOptions = scriptNodes.filter(n => n !== node.type).map(n => ({
-        content: n,
-        callback: replaceNodeMenuCallback(node, n)
-    }));
-
-    new LiteGraph.ContextMenu(swapOptions, {
-        event: e,
-        callback: null,
-        parentMenu: menu,
-        node: node
-    });
-
-    return false;
-}
+const scriptNodes = [
+    "XY Plot",
+    "Noise Control Script",
+    "HighRes-Fix Script",
+    "Tiled Upscaler Script",
+    "AnimateDiff Script"
+];
 
 // Extension Definition
 app.registerExtension({
     name: "efficiency.SwapScripts",
-    async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (["XY Plot", "Noise Control Script", "HighRes-Fix Script", "Tiled Upscaler Script", "AnimateDiff Script"].includes(nodeData.name)) {
-            addMenuHandler(nodeType, function (insertOption) {
-                insertOption({
-                    content: "🔄 Swap with...",
-                    has_submenu: true,
-                    callback: showSwapMenu
-                });
-            });
-        }
+    getNodeMenuItems(node) {
+        if (!scriptNodes.includes(node.comfyClass)) return [];
+
+        const options = scriptNodes
+            .filter(n => n !== node.comfyClass)
+            .map(n => ({ content: n, callback: () => replaceNode(node, n) }));
+
+        return [{ content: "🔄 Swap with...", submenu: { options } }];
     },
 });

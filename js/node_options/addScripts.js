@@ -1,5 +1,4 @@
 import { app } from "../../../scripts/app.js";
-import { addMenuHandler } from "./common/utils.js";
 import { addNode } from "./common/utils.js";
 
 const connectionMap = {
@@ -47,7 +46,7 @@ function addAndConnectScriptNode(scriptType, selectedNode) {
                     for (let connectedNode of connectedNodes) {
                         // Disconnect the node from selectedNode's output
                         selectedNode.disconnectOutput(selectedNodeType[1]);
-                        // Connect the newNode's output to the previously connected node, 
+                        // Connect the newNode's output to the previously connected node,
                         // using the appropriate slot based on the type of the connectedNode
                         const targetSlot = (connectedNode.type in connectionMap) ? connectionMap[connectedNode.type][1] : 0;
                         newNode.connect(0, connectedNode, targetSlot);
@@ -111,7 +110,7 @@ function getScriptOptions(nodeType, node) {
     // Filter script types based on node type
     const scriptTypes = allScriptTypes.filter(scriptType => {
         const scriptBehavior = connectionMap[scriptType][0];
-        
+
         if (connectionMap[nodeType][0] === "output") {
             return scriptBehavior.includes("input");  // Includes nodes that are "input" or "input & output"
         } else {
@@ -122,31 +121,17 @@ function getScriptOptions(nodeType, node) {
     return scriptTypes.map(script => createScriptEntry(node, script));
 }
 
-
-function showAddScriptMenu(_, options, e, menu, node) {
-    const scriptOptions = getScriptOptions(node.type, node);
-    new LiteGraph.ContextMenu(scriptOptions, {
-        event: e,
-        callback: null,
-        parentMenu: menu,
-        node: node
-    });
-    return false;
-}
-
 // Extension Definition
 app.registerExtension({
     name: "efficiency.addScripts",
-    async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (connectionMap[nodeData.name]) {
-            addMenuHandler(nodeType, function(insertOption) {
-                insertOption({
-                    content: "📜 Add script...",
-                    has_submenu: true,
-                    callback: showAddScriptMenu
-                });
-            });
-        }
+    getNodeMenuItems(node) {
+        if (!connectionMap[node.comfyClass]) return [];
+
+        return [{
+            content: "📜 Add script...",
+            submenu: {
+                options: getScriptOptions(node.comfyClass, node)
+            }
+        }];
     },
 });
-

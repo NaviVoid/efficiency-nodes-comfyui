@@ -1,5 +1,4 @@
 import { app } from "../../../scripts/app.js";
-import { addMenuHandler } from "./common/utils.js";
 
 function replaceNode(oldNode, newNodeName) {
     const newNode = LiteGraph.createNode(newNodeName);
@@ -33,66 +32,37 @@ function replaceNode(oldNode, newNodeName) {
     app.graph.remove(oldNode);
 }
 
-function replaceNodeMenuCallback(currentNode, targetNodeName) {
-    return function() {
-        replaceNode(currentNode, targetNodeName);
-    };
-}
-
-function showSwapMenu(value, options, e, menu, node) {
-    const swapOptions = [];
-    const xyInputNodes = [
-        "XY Input: Seeds++ Batch",
-        "XY Input: Add/Return Noise",
-        "XY Input: Steps",
-        "XY Input: CFG Scale",
-        "XY Input: Sampler/Scheduler",
-        "XY Input: Denoise",
-        "XY Input: VAE",
-        "XY Input: Prompt S/R",
-        "XY Input: Aesthetic Score",
-        "XY Input: Refiner On/Off",
-        "XY Input: Checkpoint",
-        "XY Input: Clip Skip",
-        "XY Input: LoRA",
-        "XY Input: LoRA Plot",
-        "XY Input: LoRA Stacks",
-        "XY Input: Control Net",
-        "XY Input: Control Net Plot",
-        "XY Input: Manual XY Entry"
-    ];
-
-    for (const nodeType of xyInputNodes) {
-        if (node.type !== nodeType) {
-            swapOptions.push({
-                content: nodeType,
-                callback: replaceNodeMenuCallback(node, nodeType)
-            });
-        }
-    }
-
-    new LiteGraph.ContextMenu(swapOptions, {
-        event: e,
-        callback: null,
-        parentMenu: menu,
-        node: node
-    });
-
-    return false;  // This ensures the original context menu doesn't proceed
-}
+const xyInputNodes = [
+    "XY Input: Seeds++ Batch",
+    "XY Input: Add/Return Noise",
+    "XY Input: Steps",
+    "XY Input: CFG Scale",
+    "XY Input: Sampler/Scheduler",
+    "XY Input: Denoise",
+    "XY Input: VAE",
+    "XY Input: Prompt S/R",
+    "XY Input: Aesthetic Score",
+    "XY Input: Refiner On/Off",
+    "XY Input: Checkpoint",
+    "XY Input: Clip Skip",
+    "XY Input: LoRA",
+    "XY Input: LoRA Plot",
+    "XY Input: LoRA Stacks",
+    "XY Input: Control Net",
+    "XY Input: Control Net Plot",
+    "XY Input: Manual XY Entry"
+];
 
 // Extension Definition
 app.registerExtension({
     name: "efficiency.swapXYinputs",
-    async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData.name.startsWith("XY Input:")) {
-            addMenuHandler(nodeType, function (insertOption) {
-                insertOption({
-                    content: "🔄 Swap with...",
-                    has_submenu: true,
-                    callback: showSwapMenu
-                });
-            });
-        }
+    getNodeMenuItems(node) {
+        if (!node.comfyClass?.startsWith("XY Input:")) return [];
+
+        const options = xyInputNodes
+            .filter(n => n !== node.comfyClass)
+            .map(n => ({ content: n, callback: () => replaceNode(node, n) }));
+
+        return [{ content: "🔄 Swap with...", submenu: { options } }];
     },
 });

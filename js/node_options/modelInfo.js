@@ -1,7 +1,7 @@
 import { app } from "../../../scripts/app.js";
-import { $el } from "../../../scripts/ui.js";
 import { ModelInfoDialog } from "./common/modelInfoDialog.js";
-import { addMenuHandler } from "./common/utils.js";
+
+const { $el } = window?.comfyAPI?.ui ?? await import("../../../scripts/ui.js");
 
 const MAX_TAGS = 500;
 
@@ -263,74 +263,53 @@ const infoHandler = {
     }
 };
 
-// Utility functions and other parts of your code remain unchanged
-
 app.registerExtension({
     name: "efficiency.ModelInfo",
-    beforeRegisterNodeDef(nodeType) {
-        const types = infoHandler[nodeType.comfyClass];
+    getNodeMenuItems(node) {
+        const types = infoHandler[node.comfyClass];
+        if (!types) return [];
 
-        if (types) {
-            addMenuHandler(nodeType, function (insertOption) { // Here, we are calling addMenuHandler
-                let submenuItems = [];  // to store submenu items
+        const submenuItems = [];
 
-                const addSubMenuOption = (type, widgetNames) => {
-                    widgetNames.forEach(widgetName => {
-                        const widgetValue = this.widgets.find(w => w.name === widgetName)?.value;
-                        
-                        // Check if widgetValue is "None"
-                        if (!widgetValue || widgetValue === "None") {
-                            return;
-                        }
-                        
-                        let value = widgetValue;
-                        if (value.content) {
-                            value = value.content;
-                        }
-                        const cls = type === "loras" ? LoraInfoDialog : CheckpointInfoDialog;
+        const addSubMenuOption = (type, widgetNames) => {
+            widgetNames.forEach(widgetName => {
+                const widgetValue = node.widgets.find(w => w.name === widgetName)?.value;
 
-                        const label = widgetName; 
-
-                        // Push to submenuItems
-                        submenuItems.push({
-                            content: label,
-                            callback: async () => {
-                                new cls(value).show(type, value);
-                            },
-                        });
-                    });
-                };
-
-                if (typeof types === 'object') {
-                    Object.keys(types).forEach(type => {
-                        addSubMenuOption(type, types[type]);
-                    });
+                // Check if widgetValue is "None"
+                if (!widgetValue || widgetValue === "None") {
+                    return;
                 }
 
-                // If we have submenu items, use insertOption
-                if (submenuItems.length) {
-                    insertOption({ // Using insertOption here
-                        content: "🔍 View model info...",
-                        has_submenu: true,
-                        callback: (value, options, e, menu, node) => {
-                            new LiteGraph.ContextMenu(submenuItems, {
-                                event: e,
-                                callback: null,
-                                parentMenu: menu,
-                                node: node
-                            });
-
-                            return false; // This ensures the original context menu doesn't proceed
-                        }
-                    });
+                let value = widgetValue;
+                if (value.content) {
+                    value = value.content;
                 }
+                const cls = type === "loras" ? LoraInfoDialog : CheckpointInfoDialog;
+
+                const label = widgetName;
+
+                submenuItems.push({
+                    content: label,
+                    callback: async () => {
+                        new cls(value).show(type, value);
+                    },
+                });
+            });
+        };
+
+        if (typeof types === 'object') {
+            Object.keys(types).forEach(type => {
+                addSubMenuOption(type, types[type]);
             });
         }
+
+        if (!submenuItems.length) return [];
+
+        return [{
+            content: "🔍 View model info...",
+            submenu: {
+                options: submenuItems
+            }
+        }];
     },
 });
-
-
-
-
-
-

@@ -1,5 +1,4 @@
 import { app } from "../../../scripts/app.js";
-import { addMenuHandler } from "./common/utils.js";
 import { findWidgetByName } from "./common/utils.js";
 
 function replaceNode(oldNode, newNodeName) {
@@ -136,56 +135,18 @@ function replaceNode(oldNode, newNodeName) {
     app.graph.remove(oldNode);
 }
 
-function replaceNodeMenuCallback(currentNode, targetNodeName) {
-    return function() {
-        replaceNode(currentNode, targetNodeName);
-    };
-}
-
-function showSwapMenu(value, options, e, menu, node) {
-    const swapOptions = [];
-
-    if (node.type !== "KSampler (Efficient)") {
-        swapOptions.push({
-            content: "KSampler (Efficient)",
-            callback: replaceNodeMenuCallback(node, "KSampler (Efficient)")
-        });
-    }
-    if (node.type !== "KSampler Adv. (Efficient)") {
-        swapOptions.push({
-            content: "KSampler Adv. (Efficient)",
-            callback: replaceNodeMenuCallback(node, "KSampler Adv. (Efficient)")
-        });
-    }
-    if (node.type !== "KSampler SDXL (Eff.)") {
-        swapOptions.push({
-            content: "KSampler SDXL (Eff.)",
-            callback: replaceNodeMenuCallback(node, "KSampler SDXL (Eff.)")
-        });
-    }
-
-    new LiteGraph.ContextMenu(swapOptions, {
-        event: e,
-        callback: null,
-        parentMenu: menu,
-        node: node
-    });
-
-    return false;  // This ensures the original context menu doesn't proceed
-}
+const samplerNodes = ["KSampler (Efficient)", "KSampler Adv. (Efficient)", "KSampler SDXL (Eff.)"];
 
 // Extension Definition
 app.registerExtension({
     name: "efficiency.SwapSamplers",
-    async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (["KSampler (Efficient)", "KSampler Adv. (Efficient)", "KSampler SDXL (Eff.)"].includes(nodeData.name)) {
-            addMenuHandler(nodeType, function (insertOption) {
-                insertOption({
-                    content: "🔄 Swap with...",
-                    has_submenu: true,
-                    callback: showSwapMenu
-                });
-            });
-        }
+    getNodeMenuItems(node) {
+        if (!samplerNodes.includes(node.comfyClass)) return [];
+
+        const options = samplerNodes
+            .filter(n => n !== node.comfyClass)
+            .map(n => ({ content: n, callback: () => replaceNode(node, n) }));
+
+        return [{ content: "🔄 Swap with...", submenu: { options } }];
     },
 });

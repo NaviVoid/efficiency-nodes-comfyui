@@ -1,5 +1,5 @@
 import { app } from "../../../scripts/app.js";
-import { addMenuHandler, addNode } from "./common/utils.js";
+import { addNode } from "./common/utils.js";
 
 const nodePxOffsets = 80;
 
@@ -26,14 +26,14 @@ function getXYInputNodes() {
     ];
 }
 
-function showAddXYInputMenu(type, e, menu, node) {
+function getXYInputOptions(type, node) {
     const specialNodes = [
         "XY Input: LoRA Plot",
         "XY Input: Control Net Plot",
         "XY Input: Manual XY Entry"
     ];
-    
-    const values = getXYInputNodes().map(nodeType => {
+
+    return getXYInputNodes().map(nodeType => {
         return {
             content: nodeType,
             callback: function() {
@@ -58,32 +58,26 @@ function showAddXYInputMenu(type, e, menu, node) {
             }
         };
     });
-
-    new LiteGraph.ContextMenu(values, {
-        event: e,
-        callback: null,
-        parentMenu: menu,
-        node: node
-    });
-    return false;
 }
 
 app.registerExtension({
     name: "efficiency.addXYinputs",
-    async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (nodeData.name === "XY Plot") {
-            addMenuHandler(nodeType, function(insertOption) {
-                insertOption({
-                    content: "✏️ Add 𝚇 input...",
-                    has_submenu: true,
-                    callback: (value, options, e, menu, node) => showAddXYInputMenu('X', e, menu, node)
-                });
-                insertOption({
-                    content: "✏️ Add 𝚈 input...",
-                    has_submenu: true,
-                    callback: (value, options, e, menu, node) => showAddXYInputMenu('Y', e, menu, node)
-                });
-            });
-        }
+    getNodeMenuItems(node) {
+        if (node.comfyClass !== "XY Plot") return [];
+
+        return [
+            {
+                content: "✏️ Add 𝚇 input...",
+                submenu: {
+                    options: getXYInputOptions('X', node)
+                }
+            },
+            {
+                content: "✏️ Add 𝚈 input...",
+                submenu: {
+                    options: getXYInputOptions('Y', node)
+                }
+            }
+        ];
     },
 });

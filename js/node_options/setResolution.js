@@ -1,6 +1,6 @@
 // Additional functions and imports
 import { app } from "../../../scripts/app.js";
-import { addMenuHandler, findWidgetByName } from "./common/utils.js";
+import { findWidgetByName } from "./common/utils.js";
 
 // A mapping for resolutions based on the type of the loader
 const RESOLUTIONS = {
@@ -42,47 +42,18 @@ function setNodeResolution(node, width, height) {
     }
 }
 
-// The callback for the resolution submenu
-function resolutionMenuCallback(node, width, height) {
-    return function() {
-        setNodeResolution(node, width, height);
-    };
-}
-
-// Show the set resolution submenu
-function showResolutionMenu(value, options, e, menu, node) {
-    const resolutions = RESOLUTIONS[node.type];
-    if (!resolutions) {
-        return false;
-    }
-
-    const resolutionOptions = resolutions.map(res => ({
-        content: `${res.width} x ${res.height}`,
-        callback: resolutionMenuCallback(node, res.width, res.height)
-    }));
-
-    new LiteGraph.ContextMenu(resolutionOptions, {
-        event: e,
-        callback: null,
-        parentMenu: menu,
-        node: node
-    });
-
-    return false;  // This ensures the original context menu doesn't proceed
-}
-
 // Extension Definition
 app.registerExtension({
     name: "efficiency.SetResolution",
-    async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (["Efficient Loader", "Eff. Loader SDXL"].includes(nodeData.name)) {
-            addMenuHandler(nodeType, function (insertOption) {
-                insertOption({
-                    content: "📐 Set Resolution...",
-                    has_submenu: true,
-                    callback: showResolutionMenu
-                });
-            });
-        }
+    getNodeMenuItems(node) {
+        const resolutions = RESOLUTIONS[node.comfyClass];
+        if (!resolutions) return [];
+
+        const options = resolutions.map(res => ({
+            content: `${res.width} x ${res.height}`,
+            callback: () => setNodeResolution(node, res.width, res.height)
+        }));
+
+        return [{ content: "📐 Set Resolution...", submenu: { options } }];
     },
 });

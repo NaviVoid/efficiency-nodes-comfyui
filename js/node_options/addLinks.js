@@ -1,5 +1,4 @@
 import { app } from "../../../scripts/app.js";
-import { addMenuHandler } from "./common/utils.js";
 import { addNode } from "./common/utils.js";
 
 function createKSamplerEntry(node, samplerType, subNodeType = null, isSDXL = false) {
@@ -45,7 +44,7 @@ function createKSamplerEntry(node, samplerType, subNodeType = null, isSDXL = fal
             node.connect(0, kSamplerNode, 0);  // MODEL
             node.connect(1, kSamplerNode, 1);  // CONDITIONING+
             node.connect(2, kSamplerNode, 2);  // CONDITIONING-
-            
+
             // Additional connections for non-SDXL
             if (!isSDXL) {
                 node.connect(3, kSamplerNode, 3);  // LATENT
@@ -74,7 +73,7 @@ function createStackerNode(node, type) {
         content: contentLabel,
         callback: function() {
             const stackerNode = addNode(contentLabel, node);
-            
+
             // Calculate the left shift based on the width of the new node
             const shiftX = -(stackerNode.size[0] + 25);
 
@@ -144,37 +143,23 @@ function getMenuValues(type, node) {
     return menuValues;
 }
 
-function showAddLinkMenuCommon(value, options, e, menu, node, type) {
-    const values = getMenuValues(type, node);
-    new LiteGraph.ContextMenu(values, {
-        event: e,
-        callback: null,
-        parentMenu: menu,
-        node: node
-    });
-    return false;
-}
+const linkTypes = {
+    "Efficient Loader": "Efficient",
+    "Eff. Loader SDXL": "SDXL"
+};
 
 // Extension Definition
 app.registerExtension({
     name: "efficiency.addLinks",
-    async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        const linkTypes = {
-            "Efficient Loader": "Efficient",
-            "Eff. Loader SDXL": "SDXL"
-        };
+    getNodeMenuItems(node) {
+        const linkType = linkTypes[node.comfyClass];
+        if (!linkType) return [];
 
-        const linkType = linkTypes[nodeData.name];
-        
-        if (linkType) {
-            addMenuHandler(nodeType, function(insertOption) {
-                insertOption({
-                    content: "⛓ Add link...",
-                    has_submenu: true,
-                    callback: (value, options, e, menu, node) => showAddLinkMenuCommon(value, options, e, menu, node, linkType)
-                });
-            });
-        }
+        return [{
+            content: "⛓ Add link...",
+            submenu: {
+                options: getMenuValues(linkType, node)
+            }
+        }];
     },
 });
-

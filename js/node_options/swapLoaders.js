@@ -1,5 +1,4 @@
 import { app } from "../../../scripts/app.js";
-import { addMenuHandler } from "./common/utils.js";
 import { findWidgetByName } from "./common/utils.js";
 
 function replaceNode(oldNode, newNodeName) {
@@ -60,12 +59,12 @@ function replaceNode(oldNode, newNodeName) {
     oldNode.outputs.forEach((output, index) => {
         if (output && output.links && outputMapping[output.name]) {
             const newOutputName = outputMapping[output.name];
-            
+
             // If the new node does not have this output, skip
             if (newOutputName === null) {
                 return;
             }
-            
+
             const newOutputIndex = newNode.findOutputSlot(newOutputName);
             if (newOutputIndex !== -1) {
                 output.links.forEach(link => {
@@ -85,51 +84,20 @@ function replaceNode(oldNode, newNodeName) {
     app.graph.remove(oldNode);
 }
 
-function replaceNodeMenuCallback(currentNode, targetNodeName) {
-    return function() {
-        replaceNode(currentNode, targetNodeName);
-    };
-}
-
-function showSwapMenu(value, options, e, menu, node) {
-    const swapOptions = [];
-
-    if (node.type !== "Efficient Loader") {
-        swapOptions.push({
-            content: "Efficient Loader",
-            callback: replaceNodeMenuCallback(node, "Efficient Loader")
-        });
-    }
-
-    if (node.type !== "Eff. Loader SDXL") {
-        swapOptions.push({
-            content: "Eff. Loader SDXL",
-            callback: replaceNodeMenuCallback(node, "Eff. Loader SDXL")
-        });
-    }
-
-    new LiteGraph.ContextMenu(swapOptions, {
-        event: e,
-        callback: null,
-        parentMenu: menu,
-        node: node
-    });
-
-    return false;  // This ensures the original context menu doesn't proceed
-}
+const loaderNodes = ["Efficient Loader", "Eff. Loader SDXL"];
 
 // Extension Definition
 app.registerExtension({
     name: "efficiency.SwapLoaders",
-    async beforeRegisterNodeDef(nodeType, nodeData, app) {
-        if (["Efficient Loader", "Eff. Loader SDXL"].includes(nodeData.name)) {
-            addMenuHandler(nodeType, function (insertOption) {
-                insertOption({
-                    content: "🔄 Swap with...",
-                    has_submenu: true,
-                    callback: showSwapMenu
-                });
-            });
-        }
+    getNodeMenuItems(node) {
+        if (!loaderNodes.includes(node.comfyClass)) return [];
+
+        const options = [];
+        if (node.comfyClass !== "Efficient Loader")
+            options.push({ content: "Efficient Loader", callback: () => replaceNode(node, "Efficient Loader") });
+        if (node.comfyClass !== "Eff. Loader SDXL")
+            options.push({ content: "Eff. Loader SDXL", callback: () => replaceNode(node, "Eff. Loader SDXL") });
+
+        return [{ content: "🔄 Swap with...", submenu: { options } }];
     },
 });

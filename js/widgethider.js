@@ -27,6 +27,7 @@ function toggleWidget(node, widget, show = false, suffix = "") {
     // Set the widget type and computeSize based on the show flag
     widget.type = show ? origProps[widget.name].origType : HIDDEN_TAG + suffix;
     widget.computeSize = show ? origProps[widget.name].origComputeSize : () => [0, -4];
+    widget.hidden = !show;
 
     // Recursively handle linked widgets if they exist
     widget.linkedWidgets?.forEach(w => toggleWidget(node, w, ":" + widget.name, show));
@@ -38,11 +39,10 @@ function updateSize(node) {
     node.setSize([node.size[0], newHeight]);
 }
 
-const WIDGET_HEIGHT = 24;
 // Use for Multiline Widget Nodes (aka Efficient Loaders)
 function toggleWidget_2(node, widget, show = false, suffix = "") {
     if (!widget || doesInputWithNameExist(node, widget.name)) return;
-    
+
     const isCurrentlyVisible = widget.type !== HIDDEN_TAG + suffix;
     if (isCurrentlyVisible === show) return; // Early exit if widget is already in the desired state
 
@@ -52,10 +52,10 @@ function toggleWidget_2(node, widget, show = false, suffix = "") {
 
     widget.type = show ? origProps[widget.name].origType : HIDDEN_TAG + suffix;
     widget.computeSize = show ? origProps[widget.name].origComputeSize : () => [0, -4];
+    widget.hidden = !show;
 
     if (initialized){
-        const adjustment = show ? WIDGET_HEIGHT : -WIDGET_HEIGHT;
-        node.setSize([node.size[0], node.size[1] + adjustment]);
+        updateSize(node);
     }
 }
 

@@ -1,8 +1,12 @@
-import { $el, ComfyDialog } from "../../../../scripts/ui.js";
+const { $el, ComfyDialog } = window?.comfyAPI?.ui ?? await import("../../../../scripts/ui.js");
 import { api } from "../../../../scripts/api.js";
-import { addStylesheet } from "./utils.js";
 
-addStylesheet(import.meta.url);
+// Load stylesheet
+const link = document.createElement("link");
+link.rel = "stylesheet";
+link.type = "text/css";
+link.href = import.meta.url.replace(/\.js$/, ".css");
+document.head.appendChild(link);
 
 class MetadataDialog extends ComfyDialog {
 	constructor() {
