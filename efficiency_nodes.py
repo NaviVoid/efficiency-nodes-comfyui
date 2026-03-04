@@ -7591,6 +7591,9 @@ class SDupscaleTiledSize:
         return (image, upscale_by, tiled_width, tiled_height)
 
 
+from nodes import SaveImage
+
+
 class SaveImageWithMetadata:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
@@ -7614,34 +7617,10 @@ class SaveImageWithMetadata:
     CATEGORY = "Efficiency Nodes/utils"
 
     def save(self, image, filename_prefix="ComfyUI", metadata=""):
-        filename_prefix += self.prefix_append
-        full_output_folder, filename, counter, subfolder, filename_prefix = (
-            folder_paths.get_save_image_path(
-                filename_prefix, self.output_dir, image.shape[1], image.shape[0]
-            )
-        )
-
-        if isinstance(image, list):
-            image = image[0]
-
         if isinstance(metadata, list):
             metadata = metadata[0]
-
-        img = tensor2pil(image).convert("RGB")
-        pnginfo = PngInfo()
-        pnginfo.add_text("parameters", metadata)
-
-        file = f"{filename}_{counter:05}_.png"
-        img.save(
-            os.path.join(full_output_folder, file),
-            pnginfo=pnginfo,
-            compress_level=self.compress_level,
-        )
-        return {
-            "ui": {
-                "images": {"filename": file, "subfolder": subfolder, "type": self.type}
-            }
-        }
+        pnginfo = PngInfo().add_text("parameters", metadata)
+        return SaveImage().save_images([image[0]], filename_prefix, None, pnginfo)
 
 
 class ImageWithMetadata:
