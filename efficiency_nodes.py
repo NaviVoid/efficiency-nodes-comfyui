@@ -22,40 +22,23 @@ import psutil
 import torch
 from comfy import samplers
 from comfy_extras.nodes_align_your_steps import AlignYourStepsScheduler
-from comfy_extras.nodes_clip_sdxl import CLIPTextEncodeSDXL, CLIPTextEncodeSDXLRefiner
+from comfy_extras.nodes_clip_sdxl import (CLIPTextEncodeSDXL,
+                                          CLIPTextEncodeSDXLRefiner)
 from comfy_extras.nodes_gits import GITSScheduler
-from comfy_extras.nodes_upscale_model import ImageUpscaleWithModel, UpscaleModelLoader
-from nodes import (
-    MAX_RESOLUTION,
-    CLIPSetLastLayer,
-    CLIPTextEncode,
-    ControlNetApply,
-    ControlNetApplyAdvanced,
-    ControlNetLoader,
-    ImageScaleBy,
-    KSampler,
-    KSamplerAdvanced,
-    LatentUpscaleBy,
-    LoadImage,
-    PreviewImage,
-    VAEDecode,
-    VAEDecodeTiled,
-    VAEEncode,
-    VAEEncodeTiled,
-)
+from comfy_extras.nodes_upscale_model import (ImageUpscaleWithModel,
+                                              UpscaleModelLoader)
+from nodes import (MAX_RESOLUTION, CLIPSetLastLayer, CLIPTextEncode,
+                   ControlNetApply, ControlNetApplyAdvanced, ControlNetLoader,
+                   ImageScaleBy, KSampler, KSamplerAdvanced, LatentUpscaleBy,
+                   LoadImage, PreviewImage, VAEDecode, VAEDecodeTiled,
+                   VAEEncode, VAEEncodeTiled)
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageSequence
 from PIL.PngImagePlugin import PngInfo
 from torch import Tensor
 
-from .py import (
-    bnk_adv_encode,
-    bnk_tiled_samplers,
-    cg_mixed_seed_noise,
-    city96_latent_upscaler,
-    smZ_cfg_denoiser,
-    smZ_rng_source,
-    ttl_nn_latent_upscaler,
-)
+from .py import (bnk_adv_encode, bnk_tiled_samplers, cg_mixed_seed_noise,
+                 city96_latent_upscaler, smZ_cfg_denoiser, smZ_rng_source,
+                 ttl_nn_latent_upscaler)
 from .tsc_utils import *
 
 # Get the absolute path of various directories
@@ -7591,9 +7574,6 @@ class SDupscaleTiledSize:
         return (image, upscale_by, tiled_width, tiled_height)
 
 
-from nodes import SaveImage
-
-
 class SaveImageWithMetadata:
     def __init__(self):
         self.output_dir = folder_paths.get_output_directory()
@@ -7617,10 +7597,34 @@ class SaveImageWithMetadata:
     CATEGORY = "Efficiency Nodes/utils"
 
     def save(self, image, filename_prefix="ComfyUI", metadata=""):
+        if isinstance(image, list):
+            image = image[0]
         if isinstance(metadata, list):
             metadata = metadata[0]
-        pnginfo = PngInfo().add_text("parameters", metadata)
-        return SaveImage().save_images([image[0]], filename_prefix, None, pnginfo)
+
+        filename_prefix += self.prefix_append
+        full_output_folder, filename, counter, subfolder, filename_prefix = (
+            folder_paths.get_save_image_path(
+                filename_prefix, self.output_dir, image.shape[1], image.shape[0]
+            )
+        )
+
+        img = tensor2pil(image)
+        meta = PngInfo()
+        meta.add_text("parameters", metadata)
+
+        file = f"{filename}_{counter:05}_.png"
+        img.save(
+            os.path.join(full_output_folder, file),
+            pnginfo=meta,
+            compress_level=self.compress_level,
+        )
+
+        return {
+            "ui": {
+                "images": {"filename": file, "subfolder": subfolder, "type": self.type}
+            }
+        }
 
 
 class ImageWithMetadata:
