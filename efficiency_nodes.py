@@ -22,23 +22,40 @@ import psutil
 import torch
 from comfy import samplers
 from comfy_extras.nodes_align_your_steps import AlignYourStepsScheduler
-from comfy_extras.nodes_clip_sdxl import (CLIPTextEncodeSDXL,
-                                          CLIPTextEncodeSDXLRefiner)
+from comfy_extras.nodes_clip_sdxl import CLIPTextEncodeSDXL, CLIPTextEncodeSDXLRefiner
 from comfy_extras.nodes_gits import GITSScheduler
-from comfy_extras.nodes_upscale_model import (ImageUpscaleWithModel,
-                                              UpscaleModelLoader)
-from nodes import (MAX_RESOLUTION, CLIPSetLastLayer, CLIPTextEncode,
-                   ControlNetApply, ControlNetApplyAdvanced, ControlNetLoader,
-                   ImageScaleBy, KSampler, KSamplerAdvanced, LatentUpscaleBy,
-                   LoadImage, PreviewImage, VAEDecode, VAEDecodeTiled,
-                   VAEEncode, VAEEncodeTiled)
+from comfy_extras.nodes_upscale_model import ImageUpscaleWithModel, UpscaleModelLoader
+from nodes import (
+    MAX_RESOLUTION,
+    CLIPSetLastLayer,
+    CLIPTextEncode,
+    ControlNetApply,
+    ControlNetApplyAdvanced,
+    ControlNetLoader,
+    ImageScaleBy,
+    KSampler,
+    KSamplerAdvanced,
+    LatentUpscaleBy,
+    LoadImage,
+    PreviewImage,
+    VAEDecode,
+    VAEDecodeTiled,
+    VAEEncode,
+    VAEEncodeTiled,
+)
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageSequence
 from PIL.PngImagePlugin import PngInfo
 from torch import Tensor
 
-from .py import (bnk_adv_encode, bnk_tiled_samplers, cg_mixed_seed_noise,
-                 city96_latent_upscaler, smZ_cfg_denoiser, smZ_rng_source,
-                 ttl_nn_latent_upscaler)
+from .py import (
+    bnk_adv_encode,
+    bnk_tiled_samplers,
+    cg_mixed_seed_noise,
+    city96_latent_upscaler,
+    smZ_cfg_denoiser,
+    smZ_rng_source,
+    ttl_nn_latent_upscaler,
+)
 from .tsc_utils import *
 
 # Get the absolute path of various directories
