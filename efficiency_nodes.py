@@ -7390,6 +7390,72 @@ def unique_by(s):
     return r
 
 
+def convert_brackets_to_weights(text):
+    """Convert [] weight syntax to (text:weight) syntax.
+    [text] = weight *0.9, [[text]] = weight *0.9*0.9, etc.
+    Escaped \\[ and \\] are treated as literal brackets.
+    Example: [A,[B]] -> (A:0.9),(B:0.81)
+    """
+    ESCAPE_OPEN = '\x00'
+    ESCAPE_CLOSE = '\x01'
+
+    s = text.replace('\\[', ESCAPE_OPEN).replace('\\]', ESCAPE_CLOSE)
+
+    def find_matching(s, start):
+        depth = 1
+        i = start + 1
+        while i < len(s) and depth > 0:
+            if s[i] == '[':
+                depth += 1
+            elif s[i] == ']':
+                depth -= 1
+            i += 1
+        return i
+
+    def fmt_weight(w):
+        return f"{round(w, 2):.2f}".rstrip('0').rstrip('.')
+
+    def wrap_plain(text, weight):
+        if weight == 1.0:
+            return text
+        w_str = fmt_weight(weight)
+        segments = text.split(',')
+        result = []
+        for seg in segments:
+            stripped = seg.strip()
+            if stripped:
+                leading = seg[:len(seg) - len(seg.lstrip())]
+                trailing = seg[len(seg.rstrip()):]
+                result.append(f"{leading}({stripped}:{w_str}){trailing}")
+            else:
+                result.append(seg)
+        return ','.join(result)
+
+    def process(s, weight):
+        result = ""
+        i = 0
+        plain = ""
+        while i < len(s):
+            if s[i] == '[':
+                if plain:
+                    result += wrap_plain(plain, weight)
+                    plain = ""
+                end = find_matching(s, i)
+                inner = s[i + 1:end - 1]
+                result += process(inner, weight * 0.9)
+                i = end
+            else:
+                plain += s[i]
+                i += 1
+        if plain:
+            result += wrap_plain(plain, weight)
+        return result
+
+    result = process(s, 1.0)
+    result = result.replace(ESCAPE_OPEN, '[').replace(ESCAPE_CLOSE, ']')
+    return result
+
+
 class OrganizePrompt:
     @classmethod
     def INPUT_TYPES(s):
@@ -7423,6 +7489,7 @@ class OrganizePrompt:
         pmpts = [pmpt.strip() for pmpt in pmpts]
         pmpts = [pmpt for pmpt in pmpts if pmpt]
         text = ", ".join(unique_by(pmpts))
+        text = convert_brackets_to_weights(text)
 
         print(f"@==> [> {text} <]")
 
