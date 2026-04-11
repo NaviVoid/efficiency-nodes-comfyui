@@ -6,6 +6,7 @@ import ast
 import copy
 import json
 import os
+import re
 import subprocess
 import sys
 from importlib import import_module
@@ -7371,7 +7372,11 @@ class PickImageWithPrompt:
             i = node_helpers.pillow(Image.open, img)
             parameters = i.info.get("parameters", "")
             if parameters:
-                m = re.search(pattern, parameters)
+                try:
+                    m = re.search(pattern, parameters)
+                except re.error as e:
+                    print(f"PickImageWithPrompt: invalid regex pattern: {e}")
+                    break
                 if m and m.groups():
                     text = ",".join(m.groups())
                     text.replace("\\\\\\\\", "\\")
@@ -7390,11 +7395,66 @@ def unique_by(s):
     return r
 
 
+# A1111 prompt-editing bracket content, detected only when no nested brackets exist:
+#   [pmpt:step]      -> introduce pmpt after step
+#   [pmpt::step]     -> remove pmpt after step (equivalent to [pmpt::step] with empty p2)
+#   [p1:p2:step]     -> switch p1 -> p2 after step
+# step may be an integer step count or a 0.0-1.0 fraction of total steps.
+_PROMPT_EDIT_RE_3 = re.compile(r'^[^:\[\]]*:[^:\[\]]*:\d+(?:\.\d+)?$')
+_PROMPT_EDIT_RE_2 = re.compile(r'^[^:\[\]]*:\d+(?:\.\d+)?$')
+
+
+def _is_prompt_edit(content):
+    if '[' in content or ']' in content:
+        return False
+    if _PROMPT_EDIT_RE_3.match(content):
+        return True
+    if _PROMPT_EDIT_RE_2.match(content):
+        return True
+    return False
+
+
+def split_top_level_commas(text):
+    """Split text on commas, ignoring commas inside [] or () brackets. Escaped
+    \\[ \\] \\( \\) do not affect depth."""
+    parts = []
+    buf = ""
+    depth_sq = 0
+    depth_pa = 0
+    i = 0
+    n = len(text)
+    while i < n:
+        ch = text[i]
+        if ch == '\\' and i + 1 < n:
+            buf += text[i:i + 2]
+            i += 2
+            continue
+        if ch == '[':
+            depth_sq += 1
+        elif ch == ']':
+            depth_sq = max(0, depth_sq - 1)
+        elif ch == '(':
+            depth_pa += 1
+        elif ch == ')':
+            depth_pa = max(0, depth_pa - 1)
+        if ch == ',' and depth_sq == 0 and depth_pa == 0:
+            parts.append(buf)
+            buf = ""
+        else:
+            buf += ch
+        i += 1
+    parts.append(buf)
+    return parts
+
+
 def convert_brackets_to_weights(text):
     """Convert [] weight syntax to (text:weight) syntax.
     [text] = weight *0.9, [[text]] = weight *0.9*0.9, etc.
     Escaped \\[ and \\] are treated as literal brackets.
+    A1111 prompt-editing brackets ([pmpt:step], [pmpt::step], [p1:p2:step])
+    are preserved verbatim and are not treated as weight modifiers.
     Example: [A,[B]] -> (A:0.9),(B:0.81)
+    Example: a [fantasy:cyberpunk:16] landscape -> a [fantasy:cyberpunk:16] landscape
     """
     ESCAPE_OPEN = '\x00'
     ESCAPE_CLOSE = '\x01'
@@ -7442,7 +7502,14 @@ def convert_brackets_to_weights(text):
                     plain = ""
                 end = find_matching(s, i)
                 inner = s[i + 1:end - 1]
-                result += process(inner, weight * 0.9)
+                if _is_prompt_edit(inner):
+                    literal = s[i:end]
+                    if weight == 1.0:
+                        result += literal
+                    else:
+                        result += f"({literal}:{fmt_weight(weight)})"
+                else:
+                    result += process(inner, weight * 0.9)
                 i = end
             else:
                 plain += s[i]
@@ -7484,7 +7551,7 @@ class OrganizePrompt:
         if not isinstance(text, str):
             raise ValueError("need string")
 
-        pmpts = text.split(",")
+        pmpts = split_top_level_commas(text)
         pmpts = [pmpt.strip(", ") for pmpt in pmpts]
         pmpts = [pmpt.strip() for pmpt in pmpts]
         pmpts = [pmpt for pmpt in pmpts if pmpt]
