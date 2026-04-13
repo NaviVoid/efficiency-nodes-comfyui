@@ -7547,8 +7547,9 @@ class OrganizePrompt:
     @classmethod
     def unwrap_list(cls, s):
         if isinstance(s, list):
-            return cls.unwrap_list(s[0])
-        return s
+            items = [cls.unwrap_list(item) for item in s]
+            return ", ".join(items)
+        return s.strip()
 
     def notify(self, text, unique_id=None, extra_pnginfo=None):
         text = self.unwrap_list(text)
