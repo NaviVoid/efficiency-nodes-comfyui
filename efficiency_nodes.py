@@ -7544,9 +7544,14 @@ class OrganizePrompt:
 
     CATEGORY = "Efficiency Nodes/utils"
 
+    @classmethod
+    def unwrap_list(cls, s):
+        if isinstance(s, list):
+            return cls.unwrap_list(s[0])
+        return s
+
     def notify(self, text, unique_id=None, extra_pnginfo=None):
-        if isinstance(text, list):
-            text = ",".join(text)
+        text = self.unwrap_list(text)
 
         if not isinstance(text, str):
             raise ValueError("need string")
