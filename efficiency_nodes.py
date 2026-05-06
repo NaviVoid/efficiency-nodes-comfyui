@@ -7386,6 +7386,69 @@ class PickImageWithPrompt:
         return (output_pmpts,)
 
 
+class RandomWeightedPrompt:
+    # 从文本文件读取词，按换行或','分词，随机选取若干并赋随机权重，输出形如 "b,(c:0.5),(f:0.89)" 的字符串
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "file_path": ("STRING", {"default": ""}),
+                "pick_min": ("INT", {"default": 1, "min": 0, "max": 10000, "step": 1}),
+                "pick_max": ("INT", {"default": 5, "min": 0, "max": 10000, "step": 1}),
+                "weight_min": ("FLOAT", {"default": 0.5, "min": -10.0, "max": 10.0, "step": 0.01}),
+                "weight_max": ("FLOAT", {"default": 1.2, "min": -10.0, "max": 10.0, "step": 0.01}),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+            }
+        }
+
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("string",)
+    FUNCTION = "generate"
+    CATEGORY = "Efficiency Nodes/utils"
+
+    def generate(self, file_path, pick_min, pick_max, weight_min, weight_max, seed):
+        import random
+
+        if not file_path or not os.path.isfile(file_path):
+            return ("",)
+
+        with open(file_path, "r", encoding="utf-8") as f:
+            content = f.read()
+
+        # 按换行或 ',' 分词，词内的 '\' 保持原样不转义
+        words = re.split(r'[,\n]', content)
+        words = [w.strip() for w in words]
+        words = [w for w in words if w]
+
+        if not words:
+            return ("",)
+
+        rng = random.Random(seed)
+
+        lo, hi = (pick_min, pick_max) if pick_min <= pick_max else (pick_max, pick_min)
+        lo = max(0, lo)
+        hi = min(hi, len(words))
+        if hi < lo:
+            hi = lo
+        n = rng.randint(lo, hi)
+        if n <= 0:
+            return ("",)
+
+        chosen = rng.sample(words, n)
+
+        wlo, whi = (weight_min, weight_max) if weight_min <= weight_max else (weight_max, weight_min)
+
+        parts = []
+        for w in chosen:
+            weight = round(rng.uniform(wlo, whi), 2)
+            if weight == 1.0:
+                parts.append(w)
+            else:
+                parts.append(f"({w}:{weight})")
+
+        return (",".join(parts),)
+
+
 def unique_by(s):
     if len(s) == 0:
         return []
@@ -7881,6 +7944,7 @@ NODE_CLASS_MAPPINGS = {
     "SDupscaleTiledSize": SDupscaleTiledSize,
     "PickImageWithPrompt": PickImageWithPrompt,
     "StringListToWildcards": StringListToWildcards,
+    "RandomWeightedPrompt": RandomWeightedPrompt,
     "SaveImageWithMetadata": SaveImageWithMetadata,
     "Eff MosaicMask": MosaicMask,
     "KSampler SDXL (Eff.)": TSC_KSamplerSDXL,
