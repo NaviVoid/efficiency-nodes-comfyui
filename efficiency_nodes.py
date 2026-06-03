@@ -7649,6 +7649,97 @@ class OrganizePrompt:
         return {"ui": {"text": text}, "result": (text,)}
 
 
+# anima (anime) 与 sdxl prompt 互转：唯一区别是 anima 给每个 tag 的内容开头加 '@' 标记。
+#   anima: @xxx, (@yy y:0.5), [[@zzz]]   <->   sdxl: xxx,(yy y:0.5),[[zzz]]
+# 转换按顶层逗号分词，词与词之间用 ',' 连接（去掉两侧空格），词内部空格（如 "yy y"）保留。
+_ANIMA_MARKER = '@'
+_ANIMA_LEAD_CHARS = '([ \t'
+
+
+def _anima_marker_index(tag):
+    """返回 tag 中 '@' 标记应处的位置：跳过开头的 '(' / '[' 和空白后第一个字符。"""
+    i = 0
+    n = len(tag)
+    while i < n and tag[i] in _ANIMA_LEAD_CHARS:
+        i += 1
+    return i
+
+
+def add_anima_marker(text):
+    """sdxl -> anima：给每个顶层 tag 的内容开头加上 '@'（已有则不重复加）。"""
+    out = []
+    for tag in split_top_level_commas(text):
+        tag = tag.strip()
+        if not tag:
+            continue
+        j = _anima_marker_index(tag)
+        if j >= len(tag) or tag[j] == _ANIMA_MARKER:
+            out.append(tag)
+        else:
+            out.append(tag[:j] + _ANIMA_MARKER + tag[j:])
+    return ",".join(out)
+
+
+def strip_anima_marker(text):
+    """anima -> sdxl：去掉每个顶层 tag 内容开头的 '@'。"""
+    out = []
+    for tag in split_top_level_commas(text):
+        tag = tag.strip()
+        if not tag:
+            continue
+        j = _anima_marker_index(tag)
+        if j < len(tag) and tag[j] == _ANIMA_MARKER:
+            tag = tag[:j] + tag[j + 1:]
+        out.append(tag)
+    return ",".join(out)
+
+
+class AnimaToSDXLPrompt:
+    # anima -> sdxl：去掉每个 tag 开头的 '@' 标记
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "text": ("STRING", {"default": "", "multiline": True}),
+            }
+        }
+
+    INPUT_IS_LIST = True
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("string",)
+    FUNCTION = "convert"
+    CATEGORY = "Efficiency Nodes/utils"
+
+    def convert(self, text):
+        text = OrganizePrompt.unwrap_list(text)
+        if not isinstance(text, str):
+            raise ValueError("need string")
+        return (strip_anima_marker(text),)
+
+
+class SDXLToAnimaPrompt:
+    # sdxl -> anima：给每个 tag 开头加 '@' 标记
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "text": ("STRING", {"default": "", "multiline": True}),
+            }
+        }
+
+    INPUT_IS_LIST = True
+    RETURN_TYPES = ("STRING",)
+    RETURN_NAMES = ("string",)
+    FUNCTION = "convert"
+    CATEGORY = "Efficiency Nodes/utils"
+
+    def convert(self, text):
+        text = OrganizePrompt.unwrap_list(text)
+        if not isinstance(text, str):
+            raise ValueError("need string")
+        return (add_anima_marker(text),)
+
+
 class ImageWithPrompt(LoadImage):
     @classmethod
     def INPUT_TYPES(s):
@@ -7940,6 +8031,8 @@ NODE_CLASS_MAPPINGS = {
     "KSampler (Efficient)": TSC_KSampler,
     "KSampler Adv. (Efficient)": TSC_KSamplerAdvanced,
     "OrganizePrompt": OrganizePrompt,
+    "AnimaToSDXLPrompt": AnimaToSDXLPrompt,
+    "SDXLToAnimaPrompt": SDXLToAnimaPrompt,
     "ImageWithPrompt": ImageWithPrompt,
     "SDupscaleTiledSize": SDupscaleTiledSize,
     "PickImageWithPrompt": PickImageWithPrompt,
