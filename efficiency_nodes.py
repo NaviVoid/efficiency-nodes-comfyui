@@ -7650,48 +7650,53 @@ class OrganizePrompt:
 
 
 # anima (anime) 与 sdxl prompt 互转：唯一区别是 anima 给每个 tag 的内容开头加 '@' 标记。
-#   anima: @xxx, (@yy y:0.5), [[@zzz]]   <->   sdxl: xxx,(yy y:0.5),[[zzz]]
-# 转换按顶层逗号分词，词与词之间用 ',' 连接（去掉两侧空格），词内部空格（如 "yy y"）保留。
+#   anima: @xxx, (@yy y:0.5), [[@zzz]]   <->   sdxl: xxx, (yy y:0.5), [[zzz]]
+# 按所有逗号（含括号内）切分，每个片段开头加/去 '@'；逗号与原始空白原样保留，可无损往返。
+#   sdxl:  (misaka 12003-gou, houkisei, umehara sei:0.75), (kaneko kazuma, quasarcake:0.2)
+#   anima: (@misaka 12003-gou, @houkisei, @umehara sei:0.75), (@kaneko kazuma, @quasarcake:0.2)
 _ANIMA_MARKER = '@'
 _ANIMA_LEAD_CHARS = '([ \t'
 
 
-def _anima_marker_index(tag):
-    """返回 tag 中 '@' 标记应处的位置：跳过开头的 '(' / '[' 和空白后第一个字符。"""
-    i = 0
-    n = len(tag)
-    while i < n and tag[i] in _ANIMA_LEAD_CHARS:
-        i += 1
-    return i
+def _anima_apply_segment(seg, mark):
+    """对单个逗号分隔片段（可能含 '(' / '[' 前缀）增删 '@' 标记，保留原始空白。"""
+    j = 0
+    n = len(seg)
+    while j < n and seg[j] in _ANIMA_LEAD_CHARS:
+        j += 1
+    if mark:
+        if j < n and seg[j] != _ANIMA_MARKER:
+            return seg[:j] + _ANIMA_MARKER + seg[j:]
+        return seg
+    if j < n and seg[j] == _ANIMA_MARKER:
+        return seg[:j] + seg[j + 1:]
+    return seg
+
+
+def _anima_each_segment(text, mark):
+    """按所有逗号（含括号内）切分，对每个片段应用标记，逗号与空白原样保留。"""
+    out = []
+    n = len(text)
+    seg_start = 0
+    while True:
+        comma = text.find(',', seg_start)
+        end = n if comma == -1 else comma
+        out.append(_anima_apply_segment(text[seg_start:end], mark))
+        if comma == -1:
+            break
+        out.append(',')
+        seg_start = comma + 1
+    return "".join(out)
 
 
 def add_anima_marker(text):
-    """sdxl -> anima：给每个顶层 tag 的内容开头加上 '@'（已有则不重复加）。"""
-    out = []
-    for tag in split_top_level_commas(text):
-        tag = tag.strip()
-        if not tag:
-            continue
-        j = _anima_marker_index(tag)
-        if j >= len(tag) or tag[j] == _ANIMA_MARKER:
-            out.append(tag)
-        else:
-            out.append(tag[:j] + _ANIMA_MARKER + tag[j:])
-    return ",".join(out)
+    """sdxl -> anima：给每个逗号分隔片段（含括号内）的内容开头加 '@'（已有则不重复）。"""
+    return _anima_each_segment(text, mark=True)
 
 
 def strip_anima_marker(text):
-    """anima -> sdxl：去掉每个顶层 tag 内容开头的 '@'。"""
-    out = []
-    for tag in split_top_level_commas(text):
-        tag = tag.strip()
-        if not tag:
-            continue
-        j = _anima_marker_index(tag)
-        if j < len(tag) and tag[j] == _ANIMA_MARKER:
-            tag = tag[:j] + tag[j + 1:]
-        out.append(tag)
-    return ",".join(out)
+    """anima -> sdxl：去掉每个逗号分隔片段（含括号内）内容开头的 '@'。"""
+    return _anima_each_segment(text, mark=False)
 
 
 class AnimaToSDXLPrompt:
