@@ -7,11 +7,14 @@ import sys
 import traceback
 
 from  .efficiency_nodes import NODE_CLASS_MAPPINGS
+from .py.runtime_metadata import install_runtime_metadata_hook
 #from  .py.ttl_nn_latent_upscaler import NODE_CLASS_MAPPINGS
 #from  .py.city96_latent_upscaler import NODE_CLASS_MAPPINGS
 
 
 WEB_DIRECTORY = "js"
+
+install_runtime_metadata_hook()
 
 CC_VERSION = 2.0
 

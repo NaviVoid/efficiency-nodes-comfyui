@@ -13,6 +13,8 @@ import folder_paths
 import numpy as np
 from PIL import Image, PngImagePlugin
 
+from .runtime_metadata import get_runtime_metadata
+
 _PATTERN = re.compile(r"(%[^%]+%)")
 _SAMPLER_NAMES = {
     "euler": "Euler",
@@ -40,6 +42,10 @@ _SCHEDULER_NAMES = {
 }
 
 
+def _single_line(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value)).strip()
+
+
 def _get_node(prompt: dict, node_id: Any) -> dict | None:
     return prompt.get(node_id) or prompt.get(str(node_id))
 
@@ -55,13 +61,13 @@ def _link_node_id(prompt: dict, value: Any) -> Any | None:
     return None
 
 
-def _upstream_nodes(prompt: dict | None, node_id: Any) -> list[dict]:
+def _upstream_items(prompt: dict | None, node_id: Any) -> list[tuple[str, dict]]:
     if not isinstance(prompt, dict):
         return []
 
     node = _get_node(prompt, node_id)
     if node is None:
-        return list(prompt.values())
+        return [(str(key), value) for key, value in prompt.items()]
 
     queue = deque(
         linked_id
@@ -80,13 +86,17 @@ def _upstream_nodes(prompt: dict | None, node_id: Any) -> list[dict]:
         current = _get_node(prompt, current_id)
         if current is None:
             continue
-        result.append(current)
+        result.append((current_key, current))
         queue.extend(
             linked_id
             for value in current.get("inputs", {}).values()
             if (linked_id := _link_node_id(prompt, value)) is not None
         )
     return result
+
+
+def _upstream_nodes(prompt: dict | None, node_id: Any) -> list[dict]:
+    return [node for _node_id, node in _upstream_items(prompt, node_id)]
 
 
 def _find_prompt_text(prompt: dict, value: Any, polarity: str) -> str:
@@ -109,9 +119,19 @@ def _find_prompt_text(prompt: dict, value: Any, polarity: str) -> str:
             continue
         inputs = node.get("inputs", {})
 
-        direct_text = inputs.get(polarity)
-        if isinstance(direct_text, str):
-            texts.append(direct_text)
+        followed_polarity = False
+        short_name = "pos" if polarity == "positive" else "neg"
+        for key in (polarity, f"base_{polarity}", short_name):
+            direct_text = inputs.get(key)
+            if isinstance(direct_text, str):
+                texts.append(direct_text)
+                followed_polarity = True
+                break
+            if (next_id := _link_node_id(prompt, direct_text)) is not None:
+                queue.append(next_id)
+                followed_polarity = True
+                break
+        if followed_polarity:
             continue
         if isinstance(inputs.get("text"), str):
             texts.append(inputs["text"])
@@ -129,7 +149,7 @@ def _find_prompt_text(prompt: dict, value: Any, polarity: str) -> str:
             if (next_id := _link_node_id(prompt, input_value)) is not None
         )
 
-    return " ".join(dict.fromkeys(text for text in texts if text))
+    return _single_line(" ".join(dict.fromkeys(text for text in texts if text)))
 
 
 @lru_cache(maxsize=128)
@@ -142,15 +162,45 @@ def _sha256(path: str, _size: int, _mtime_ns: int) -> str:
 
 
 def _model_hash(folder_name: str, filename: str) -> str | None:
-    path = folder_paths.get_full_path(folder_name, filename)
+    path = filename if os.path.isfile(filename) else folder_paths.get_full_path(
+        folder_name, filename
+    )
+    if path is None:
+        requested_stem = os.path.splitext(os.path.normpath(filename))[0].casefold()
+        candidates = folder_paths.get_filename_list(folder_name)
+        match = next(
+            (
+                candidate
+                for candidate in candidates
+                if os.path.splitext(os.path.normpath(candidate))[0].casefold()
+                == requested_stem
+            ),
+            None,
+        )
+        if match is None:
+            requested_stem = os.path.basename(requested_stem)
+            matches = [
+                candidate
+                for candidate in candidates
+                if os.path.splitext(os.path.basename(candidate))[0].casefold()
+                == requested_stem
+            ]
+            match = matches[0] if len(matches) == 1 else None
+        if match is not None:
+            path = folder_paths.get_full_path(folder_name, match)
     if path is None:
         return None
     stat = os.stat(path)
     return _sha256(path, stat.st_size, stat.st_mtime_ns)
 
 
-def _collect_loras(nodes: list[dict]) -> tuple[str, dict[str, str]]:
-    loras = []
+def _collect_loras(
+    nodes: list[dict],
+    prompt_text: str,
+    runtime_loras: list[tuple[str, Any, Any]] | None = None,
+    runtime_lora_text: str = "",
+) -> tuple[str, dict[str, str]]:
+    graph_loras = []
     for node in nodes:
         inputs = node.get("inputs", {})
         lora_name = inputs.get("lora_name")
@@ -158,7 +208,7 @@ def _collect_loras(nodes: list[dict]) -> tuple[str, dict[str, str]]:
             strength = inputs.get(
                 "strength_model", inputs.get("lora_model_strength", 1.0)
             )
-            loras.append((lora_name, strength))
+            graph_loras.append((lora_name, strength))
 
         mode = inputs.get("input_mode", "simple")
         lora_count = inputs.get("lora_count", 0)
@@ -168,28 +218,58 @@ def _collect_loras(nodes: list[dict]) -> tuple[str, dict[str, str]]:
             if not isinstance(lora_name, str) or lora_name == "None":
                 continue
             strength_key = f"lora_wt_{index}" if mode == "simple" else f"model_str_{index}"
-            loras.append((lora_name, inputs.get(strength_key, 1.0)))
+            graph_loras.append((lora_name, inputs.get(strength_key, 1.0)))
+
+    pattern = r"<lora:([^:>]+):([^:>]+)(?::[^>]+)?>"
+    prompt_loras = re.findall(
+        pattern,
+        prompt_text,
+        re.IGNORECASE,
+    )
+    runtime_text_loras = re.findall(pattern, runtime_lora_text, re.IGNORECASE)
+    runtime_loras = [
+        (name, strength) for name, strength, _clip_strength in runtime_loras or []
+    ]
+    applied_loras = runtime_loras or graph_loras
+    prompt_names = {
+        os.path.splitext(os.path.basename(name))[0].casefold()
+        for name, _strength in prompt_loras
+    }
 
     unique = []
-    for filename, strength in loras:
-        item = (filename, strength)
-        if item not in unique:
-            unique.append(item)
+    seen_names = set()
+    for filename, strength in applied_loras + runtime_text_loras + prompt_loras:
+        name_key = os.path.splitext(os.path.basename(filename))[0].casefold()
+        if name_key not in seen_names:
+            seen_names.add(name_key)
+            unique.append((filename, strength))
     lora_text = []
     hashes = {}
     for filename, strength in unique:
         name = os.path.splitext(os.path.basename(filename))[0]
-        lora_text.append(f"<lora:{name}:{strength}>")
+        if (
+            (filename, strength) in applied_loras + runtime_text_loras
+            and name.casefold() not in prompt_names
+        ):
+            lora_text.append(f"<lora:{name}:{strength}>")
         if hash_value := _model_hash("loras", filename):
             hashes[name] = hash_value
     return " ".join(lora_text), hashes
 
 
 def extract_metadata(
-    prompt: dict | None, node_id: Any, width: int, height: int
+    prompt: dict | None,
+    node_id: Any,
+    width: int,
+    height: int,
+    runtime_data: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     metadata: dict[str, Any] = {"size": f"{width}x{height}"}
-    nodes = _upstream_nodes(prompt, node_id)
+    upstream_items = _upstream_items(prompt, node_id)
+    nodes = [node for _upstream_id, node in upstream_items]
+    runtime_data = runtime_data or get_runtime_metadata(
+        {upstream_id for upstream_id, _node in upstream_items}
+    )
 
     sampler = next(
         (
@@ -235,6 +315,17 @@ def extract_metadata(
             metadata["prompt"] = loader["inputs"].get("positive", "")
             metadata["negative_prompt"] = loader["inputs"].get("negative", "")
 
+    if runtime_data.get("prompt"):
+        metadata["prompt"] = runtime_data["prompt"]
+    if runtime_data.get("negative_prompt"):
+        metadata["negative_prompt"] = runtime_data["negative_prompt"]
+
+    metadata["prompt"] = _single_line(metadata.get("prompt", ""))
+    metadata["negative_prompt"] = _single_line(
+        metadata.get("negative_prompt", "")
+    )
+
+    checkpoint_folder = "checkpoints"
     for node in nodes:
         inputs = node.get("inputs", {})
         checkpoint = next(
@@ -252,22 +343,33 @@ def extract_metadata(
         if checkpoint:
             checkpoint_name, folder_name = checkpoint
             metadata["checkpoint"] = checkpoint_name
-            if hash_value := _model_hash(folder_name, checkpoint_name):
-                metadata["checkpoint_hash"] = hash_value
+            checkpoint_folder = folder_name
             break
 
-    metadata["loras"], lora_hashes = _collect_loras(nodes)
+    if runtime_data.get("checkpoint"):
+        metadata["checkpoint"] = runtime_data["checkpoint"]
+        checkpoint_folder = runtime_data.get("checkpoint_folder", "checkpoints")
+    if checkpoint_name := metadata.get("checkpoint"):
+        if hash_value := _model_hash(checkpoint_folder, checkpoint_name):
+            metadata["checkpoint_hash"] = hash_value
+
+    metadata["loras"], lora_hashes = _collect_loras(
+        nodes,
+        metadata["prompt"],
+        runtime_data.get("lora_stack"),
+        runtime_data.get("lora_text", ""),
+    )
     if lora_hashes:
         metadata["lora_hashes"] = lora_hashes
     return {key: value for key, value in metadata.items() if value is not None}
 
 
 def format_metadata(metadata: dict[str, Any]) -> str:
-    prompt = str(metadata.get("prompt", ""))
-    loras = metadata.get("loras", "")
-    parts = ["\n".join(value for value in (prompt, loras) if value)]
+    prompt = _single_line(metadata.get("prompt", ""))
+    loras = _single_line(metadata.get("loras", ""))
+    parts = [" ".join(value for value in (prompt, loras) if value)]
 
-    negative_prompt = metadata.get("negative_prompt")
+    negative_prompt = _single_line(metadata.get("negative_prompt", ""))
     if negative_prompt:
         parts.append(f"Negative prompt: {negative_prompt}")
 
@@ -329,7 +431,7 @@ def format_filename(
                 replacement = size[key == "height"]
         elif key in {"pprompt", "nprompt"}:
             metadata_key = "prompt" if key == "pprompt" else "negative_prompt"
-            replacement = str(metadata.get(metadata_key, "")).replace("\n", " ").strip()
+            replacement = _single_line(metadata.get(metadata_key, ""))
             if option.isdigit():
                 replacement = replacement[: int(option)]
         elif key == "model":
