@@ -273,6 +273,62 @@ class SaveImageTests(unittest.TestCase):
         self.assertEqual(metadata["negative_prompt"], "runtime negative")
         self.assertEqual(metadata["checkpoint"], "demo.safetensors")
         self.assertEqual(metadata["loras"], "<lora:lighting:0.8>")
+        self.assertEqual(
+            format_metadata(metadata).splitlines()[0],
+            "runtime positive, <lora:lighting:0.8>",
+        )
+        metadata["prompt"] = "runtime positive,"
+        self.assertEqual(
+            format_metadata(metadata).splitlines()[0],
+            "runtime positive, <lora:lighting:0.8>",
+        )
+
+    def test_runtime_anima_pack_and_resolved_sampler_metadata(self):
+        runtime_metadata._reset_for_tests()
+        runtime_metadata.record_runtime_inputs(
+            "prompt-anima",
+            "pack",
+            "AnimaArtistPack",
+            {
+                "base_prompt": ["masterpiece,\n1girl"],
+                "artist_chain": ["0.8::@dishwasher1910,\n0.1::@void 0"],
+            },
+        )
+        runtime_metadata.record_runtime_inputs(
+            "prompt-anima",
+            "sampler",
+            "KSamplerEfficient",
+            {
+                "seed": [1618],
+                "steps": [8],
+                "cfg": [1.0],
+                "sampler_name": ["euler_ancestral"],
+                "scheduler": ["normal"],
+            },
+        )
+        runtime_data = runtime_metadata.get_runtime_metadata({"pack", "sampler"})
+
+        with patch("folder_paths.get_full_path", return_value=None), patch(
+            "folder_paths.get_filename_list", return_value=[]
+        ):
+            metadata = extract_metadata(
+                workflow(), "3", 1280, 1920, runtime_data=runtime_data
+            )
+
+        self.assertEqual(metadata["prompt"], "masterpiece, 1girl")
+        self.assertEqual(
+            metadata["anima_artist_chain"],
+            "0.8::@dishwasher1910, 0.1::@void 0",
+        )
+        self.assertEqual(metadata["seed"], 1618)
+        self.assertEqual(metadata["steps"], 8)
+        self.assertEqual(metadata["cfg_scale"], 1.0)
+        self.assertEqual(metadata["sampler"], "euler_ancestral")
+        self.assertEqual(metadata["scheduler"], "normal")
+        self.assertIn(
+            'Anima artist chain: "0.8::@dishwasher1910, 0.1::@void 0"',
+            format_metadata(metadata),
+        )
 
 
 if __name__ == "__main__":

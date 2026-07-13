@@ -121,7 +121,10 @@ def _find_prompt_text(prompt: dict, value: Any, polarity: str) -> str:
 
         followed_polarity = False
         short_name = "pos" if polarity == "positive" else "neg"
-        for key in (polarity, f"base_{polarity}", short_name):
+        prompt_keys = [polarity, f"base_{polarity}", short_name]
+        if polarity == "positive":
+            prompt_keys.append("base_prompt")
+        for key in prompt_keys:
             direct_text = inputs.get(key)
             if isinstance(direct_text, str):
                 texts.append(direct_text)
@@ -320,6 +323,26 @@ def extract_metadata(
     if runtime_data.get("negative_prompt"):
         metadata["negative_prompt"] = runtime_data["negative_prompt"]
 
+    for key in ("seed", "steps", "cfg_scale", "sampler", "scheduler"):
+        if key in runtime_data:
+            metadata[key] = runtime_data[key]
+
+    anima_artist_chain = runtime_data.get("anima_artist_chain")
+    if not isinstance(anima_artist_chain, str):
+        anima_pack = next(
+            (
+                node
+                for node in nodes
+                if node.get("class_type") == "AnimaArtistPack"
+                and isinstance(node.get("inputs", {}).get("artist_chain"), str)
+            ),
+            None,
+        )
+        if anima_pack is not None:
+            anima_artist_chain = anima_pack["inputs"]["artist_chain"]
+    if isinstance(anima_artist_chain, str) and anima_artist_chain.strip():
+        metadata["anima_artist_chain"] = _single_line(anima_artist_chain)
+
     metadata["prompt"] = _single_line(metadata.get("prompt", ""))
     metadata["negative_prompt"] = _single_line(
         metadata.get("negative_prompt", "")
@@ -367,7 +390,8 @@ def extract_metadata(
 def format_metadata(metadata: dict[str, Any]) -> str:
     prompt = _single_line(metadata.get("prompt", ""))
     loras = _single_line(metadata.get("loras", ""))
-    parts = [" ".join(value for value in (prompt, loras) if value)]
+    positive = f"{prompt.rstrip(', ')}, {loras}" if prompt and loras else prompt or loras
+    parts = [positive]
 
     negative_prompt = _single_line(metadata.get("negative_prompt", ""))
     if negative_prompt:
@@ -411,6 +435,11 @@ def format_metadata(metadata: dict[str, Any]) -> str:
             for name, hash_value in lora_hashes.items()
         )
         parameters.append(f'Lora hashes: "{hashes}"')
+    anima_artist_chain = _single_line(metadata.get("anima_artist_chain", ""))
+    if anima_artist_chain:
+        parameters.append(
+            f"Anima artist chain: {json.dumps(anima_artist_chain, ensure_ascii=False)}"
+        )
     if parameters:
         parts.append(", ".join(parameters))
     return "\n".join(part for part in parts if part)

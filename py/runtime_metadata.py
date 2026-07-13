@@ -81,6 +81,28 @@ def _extract_metadata(class_type: str, input_data_all: dict) -> dict[str, Any]:
     text = inputs.get("text")
     if "LoraStacker" in class_type and isinstance(text, str):
         data["lora_text"] = text
+
+    if class_type == "AnimaArtistPack":
+        base_prompt = inputs.get("base_prompt")
+        artist_chain = inputs.get("artist_chain")
+        if isinstance(base_prompt, str):
+            data["anima_base_prompt"] = base_prompt
+        if isinstance(artist_chain, str):
+            data["anima_artist_chain"] = artist_chain
+
+    sampler_keys = ("seed", "noise_seed", "steps", "cfg", "sampler_name", "scheduler")
+    if (
+        isinstance(inputs.get("sampler_name"), str)
+        or (
+            "steps" in inputs
+            and "cfg" in inputs
+            and ("seed" in inputs or "noise_seed" in inputs)
+        )
+    ):
+        for key in sampler_keys:
+            value = inputs.get(key)
+            if isinstance(value, (str, int, float)):
+                data[key] = value
     return data
 
 
@@ -141,6 +163,27 @@ def get_runtime_metadata(node_ids: set[str] | None = None) -> dict[str, Any]:
             result["lora_stack"] = record["lora_stack"]
         if record.get("lora_text"):
             result["lora_text"] = record["lora_text"]
+
+        if isinstance(record.get("anima_base_prompt"), str):
+            result["anima_base_prompt"] = record["anima_base_prompt"]
+        if isinstance(record.get("anima_artist_chain"), str):
+            result["anima_artist_chain"] = record["anima_artist_chain"]
+
+        seed = record.get("seed", record.get("noise_seed"))
+        if isinstance(seed, (str, int, float)):
+            result["seed"] = seed
+        for source_key, target_key in (
+            ("steps", "steps"),
+            ("cfg", "cfg_scale"),
+            ("sampler_name", "sampler"),
+            ("scheduler", "scheduler"),
+        ):
+            value = record.get(source_key)
+            if isinstance(value, (str, int, float)):
+                result[target_key] = value
+
+    if result.get("anima_base_prompt"):
+        result["prompt"] = result["anima_base_prompt"]
     return result
 
 
