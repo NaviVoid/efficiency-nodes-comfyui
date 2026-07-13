@@ -57,6 +57,7 @@ from .py import (
     smZ_rng_source,
     ttl_nn_latent_upscaler,
 )
+from .py.save_image import SaveImageEfficient
 from .tsc_utils import *
 
 # Get the absolute path of various directories
@@ -8044,6 +8045,7 @@ NODE_CLASS_MAPPINGS = {
     "StringListToWildcards": StringListToWildcards,
     "RandomWeightedPrompt": RandomWeightedPrompt,
     "SaveImageWithMetadata": SaveImageWithMetadata,
+    "Save Image (Efficient)": SaveImageEfficient,
     "Eff MosaicMask": MosaicMask,
     "KSampler SDXL (Eff.)": TSC_KSamplerSDXL,
     "Efficient Loader": TSC_EfficientLoader,
