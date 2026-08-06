@@ -42,6 +42,12 @@ _SCHEDULER_NAMES = {
 }
 
 
+def _model_stem(filename: str) -> str:
+    normalized = os.path.normpath(filename)
+    stem, extension = os.path.splitext(normalized)
+    return stem if extension.casefold() in folder_paths.supported_pt_extensions else normalized
+
+
 def _single_line(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value)).strip()
 
@@ -169,14 +175,13 @@ def _model_hash(folder_name: str, filename: str) -> str | None:
         folder_name, filename
     )
     if path is None:
-        requested_stem = os.path.splitext(os.path.normpath(filename))[0].casefold()
+        requested_stem = _model_stem(filename).casefold()
         candidates = folder_paths.get_filename_list(folder_name)
         match = next(
             (
                 candidate
                 for candidate in candidates
-                if os.path.splitext(os.path.normpath(candidate))[0].casefold()
-                == requested_stem
+                if _model_stem(candidate).casefold() == requested_stem
             ),
             None,
         )
@@ -185,8 +190,7 @@ def _model_hash(folder_name: str, filename: str) -> str | None:
             matches = [
                 candidate
                 for candidate in candidates
-                if os.path.splitext(os.path.basename(candidate))[0].casefold()
-                == requested_stem
+                if os.path.basename(_model_stem(candidate)).casefold() == requested_stem
             ]
             match = matches[0] if len(matches) == 1 else None
         if match is not None:
@@ -235,21 +239,21 @@ def _collect_loras(
     ]
     applied_loras = runtime_loras or graph_loras
     prompt_names = {
-        os.path.splitext(os.path.basename(name))[0].casefold()
+        os.path.basename(_model_stem(name)).casefold()
         for name, _strength in prompt_loras
     }
 
     unique = []
     seen_names = set()
     for filename, strength in applied_loras + runtime_text_loras + prompt_loras:
-        name_key = os.path.splitext(os.path.basename(filename))[0].casefold()
+        name_key = os.path.basename(_model_stem(filename)).casefold()
         if name_key not in seen_names:
             seen_names.add(name_key)
             unique.append((filename, strength))
     lora_text = []
     hashes = {}
     for filename, strength in unique:
-        name = os.path.splitext(os.path.basename(filename))[0]
+        name = os.path.basename(_model_stem(filename))
         if (
             (filename, strength) in applied_loras + runtime_text_loras
             and name.casefold() not in prompt_names

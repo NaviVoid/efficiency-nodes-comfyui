@@ -182,6 +182,33 @@ class SaveImageTests(unittest.TestCase):
             self.assertIn(f"Model hash: {checkpoint_hash[:10]}", parameters)
             self.assertIn(f'Lora hashes: "detail: {lora_hash[:10]}"', parameters)
 
+    def test_preserves_dotted_lora_name_and_hashes_extensionless_runtime_name(self):
+        with tempfile.TemporaryDirectory() as directory:
+            lora_path = Path(directory) / "anima-turbo-lora-v0.2.safetensors"
+            lora_path.write_bytes(b"lora")
+            runtime_data = {
+                "lora_stack": [("anima-turbo-lora-v0.2", 0.7, 0.7)]
+            }
+
+            def get_full_path(folder_name, filename):
+                if folder_name == "loras" and filename.endswith(".safetensors"):
+                    return str(lora_path)
+                return None
+
+            with patch("folder_paths.get_full_path", side_effect=get_full_path), patch(
+                "folder_paths.get_filename_list",
+                return_value=["anima-turbo-lora-v0.2.safetensors"],
+            ):
+                metadata = extract_metadata(
+                    workflow(), "3", 1024, 768, runtime_data=runtime_data
+                )
+
+            lora_hash = hashlib.sha256(b"lora").hexdigest()
+            self.assertEqual(metadata["loras"], "<lora:anima-turbo-lora-v0.2:0.7>")
+            self.assertEqual(
+                metadata["lora_hashes"], {"anima-turbo-lora-v0.2": lora_hash}
+            )
+
     def test_normalizes_prompts_and_hashes_inline_loras(self):
         with tempfile.TemporaryDirectory() as directory:
             lora_paths = {
