@@ -16,6 +16,18 @@ from PIL import Image, PngImagePlugin
 from .runtime_metadata import get_runtime_metadata
 
 _PATTERN = re.compile(r"(%[^%]+%)")
+_PARAMETER_KEYS = {
+    "Steps",
+    "Sampler",
+    "CFG scale",
+    "Seed",
+    "Size",
+    "Model hash",
+    "Model",
+    "Hires upscale",
+    "Hires resize",
+    "Hires upscaler",
+}
 _SAMPLER_NAMES = {
     "euler": "Euler",
     "euler_ancestral": "Euler a",
@@ -50,6 +62,17 @@ def _model_stem(filename: str) -> str:
 
 def _single_line(value: Any) -> str:
     return re.sub(r"\s+", " ", str(value)).strip()
+
+
+def _as_first(value: Any) -> Any:
+    if isinstance(value, list):
+        return value[0] if value else ""
+    return value
+
+
+def _to_string(value: Any) -> str:
+    value = _as_first(value)
+    return "" if value is None else str(value)
 
 
 def _get_node(prompt: dict, node_id: Any) -> dict | None:
@@ -159,6 +182,267 @@ def _find_prompt_text(prompt: dict, value: Any, polarity: str) -> str:
         )
 
     return _single_line(" ".join(dict.fromkeys(text for text in texts if text)))
+
+
+def _split_a1111_parameters(line: str) -> list[str]:
+    parts = []
+    current = []
+    quote = ""
+    escaped = False
+
+    for char in line:
+        if quote:
+            current.append(char)
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = ""
+            continue
+
+        if char in {'"', "'"}:
+            quote = char
+            current.append(char)
+        elif char == ",":
+            part = "".join(current).strip()
+            if part:
+                parts.append(part)
+            current = []
+        else:
+            current.append(char)
+
+    part = "".join(current).strip()
+    if part:
+        parts.append(part)
+    return parts
+
+
+def _unquote_parameter(value: str) -> str:
+    value = value.strip()
+    if len(value) < 2 or value[0] not in {'"', "'"} or value[-1] != value[0]:
+        return value
+    if value[0] == '"':
+        try:
+            loaded = json.loads(value)
+            return str(loaded)
+        except json.JSONDecodeError:
+            pass
+    return value[1:-1]
+
+
+def _quote_parameter(value: Any) -> str:
+    text = _single_line(value)
+    if any(char in text for char in {",", '"', "\n"}):
+        return json.dumps(text, ensure_ascii=False)
+    return text
+
+
+def _parse_parameters_line(line: str) -> dict[str, str]:
+    parameters = {}
+    for part in _split_a1111_parameters(line):
+        key, separator, value = part.partition(":")
+        if separator:
+            parameters[key.strip()] = _unquote_parameter(value)
+    return parameters
+
+
+def _replace_parameters(line: str, replacements: dict[str, Any]) -> str:
+    parts = _split_a1111_parameters(line)
+    replaced = set()
+    updated = []
+
+    for part in parts:
+        key, separator, _value = part.partition(":")
+        key = key.strip()
+        if separator and key in replacements:
+            updated.append(f"{key}: {_quote_parameter(replacements[key])}")
+            replaced.add(key)
+        else:
+            updated.append(part)
+
+    for key, value in replacements.items():
+        if key not in replaced:
+            updated.append(f"{key}: {_quote_parameter(value)}")
+    return ", ".join(updated)
+
+
+def _parameters_line_index(lines: list[str]) -> int | None:
+    for index in range(len(lines) - 1, -1, -1):
+        if _PARAMETER_KEYS.intersection(_parse_parameters_line(lines[index])):
+            return index
+    return None
+
+
+def parse_metadata_text(metadata: Any) -> dict[str, Any]:
+    metadata = _to_string(metadata).strip()
+    lines = metadata.splitlines()
+    parameters_index = _parameters_line_index(lines)
+    parameter_values = (
+        _parse_parameters_line(lines[parameters_index])
+        if parameters_index is not None
+        else {}
+    )
+
+    prompt_lines = lines[:parameters_index] if parameters_index is not None else lines
+    negative_index = next(
+        (
+            index
+            for index, line in enumerate(prompt_lines)
+            if line.startswith("Negative prompt:")
+        ),
+        None,
+    )
+    if negative_index is None:
+        prompt = " ".join(prompt_lines)
+        negative_prompt = ""
+    else:
+        prompt = " ".join(prompt_lines[:negative_index])
+        first_negative = prompt_lines[negative_index][len("Negative prompt:") :]
+        negative_prompt = " ".join([first_negative] + prompt_lines[negative_index + 1 :])
+
+    result: dict[str, Any] = {
+        "prompt": _single_line(prompt),
+        "negative_prompt": _single_line(negative_prompt),
+    }
+    if seed := parameter_values.get("Seed"):
+        result["seed"] = seed
+    if size := parameter_values.get("Size"):
+        result["size"] = size
+    if model := parameter_values.get("Model"):
+        result["checkpoint"] = model
+    if hires_upscaler := parameter_values.get("Hires upscaler"):
+        result["hires_upscaler"] = hires_upscaler
+    if hires_upscale := parameter_values.get("Hires upscale"):
+        result["hires_upscale"] = hires_upscale
+    if hires_resize := parameter_values.get("Hires resize"):
+        result["hires_resize"] = hires_resize
+    return {key: value for key, value in result.items() if value}
+
+
+def _format_scale(value: float) -> str:
+    return f"{value:.4f}".rstrip("0").rstrip(".")
+
+
+def _parse_size(value: Any) -> tuple[int, int] | None:
+    match = re.search(r"(\d+)\s*x\s*(\d+)", str(value))
+    if not match:
+        return None
+    return int(match.group(1)), int(match.group(2))
+
+
+def _infer_hires_resize(
+    metadata: dict[str, Any], width: int, height: int, upscale_by: float = 0.0
+) -> tuple[str, str] | None:
+    if upscale_by and upscale_by > 0:
+        return "Hires upscale", _format_scale(float(upscale_by))
+
+    source_size = _parse_size(metadata.get("size"))
+    if source_size is None:
+        return None
+    source_width, source_height = source_size
+    if source_width <= 0 or source_height <= 0:
+        return None
+
+    scale_width = width / source_width
+    scale_height = height / source_height
+    if scale_width <= 1 and scale_height <= 1:
+        return None
+    if abs(scale_width - scale_height) <= 0.01:
+        return "Hires upscale", _format_scale((scale_width + scale_height) / 2)
+    return "Hires resize", f"{width}x{height}"
+
+
+def _model_display_name(filename: str) -> str:
+    return os.path.basename(_model_stem(filename))
+
+
+def _valid_upscale_name(value: Any) -> bool:
+    return isinstance(value, str) and value not in {
+        "",
+        "None",
+        "(auto)",
+        "(use same)",
+    }
+
+
+def _upscale_model_from_nodes(nodes: list[dict]) -> str:
+    for node in nodes:
+        class_type = str(node.get("class_type", ""))
+        inputs = node.get("inputs", {})
+
+        for key in ("upscale_model_name", "upscaler_name", "pixel_upscaler"):
+            value = inputs.get(key)
+            if _valid_upscale_name(value):
+                return _model_display_name(value)
+
+        value = inputs.get("model_name")
+        if (
+            _valid_upscale_name(value)
+            and "upscale" in class_type.casefold()
+        ):
+            return _model_display_name(value)
+    return ""
+
+
+def _upscale_model_from_prompt(prompt: dict | None, node_id: Any) -> str:
+    return _upscale_model_from_nodes(_upstream_nodes(prompt, node_id))
+
+
+def append_hires_metadata(
+    metadata: Any,
+    width: int,
+    height: int,
+    prompt: dict | None = None,
+    unique_id: Any = None,
+    upscale_model_name: str = "(auto)",
+    upscale_by: float = 0.0,
+    update_size: bool = True,
+) -> str:
+    metadata_text = _to_string(metadata).strip()
+    metadata_dict = parse_metadata_text(metadata_text)
+    additions = []
+
+    resize_field = _infer_hires_resize(metadata_dict, width, height, upscale_by)
+    if resize_field is not None:
+        additions.append(resize_field)
+
+    upscale_model = _to_string(upscale_model_name).strip()
+    if upscale_model == "(auto)":
+        upscale_model = _upscale_model_from_prompt(prompt, unique_id)
+    if upscale_model and upscale_model not in {"None", "(auto)"}:
+        additions.append(("Hires upscaler", _model_display_name(upscale_model)))
+
+    lines = metadata_text.splitlines()
+    parameters_index = _parameters_line_index(lines)
+    if parameters_index is None:
+        existing = {}
+        parameter_line = ""
+    else:
+        parameter_line = lines[parameters_index]
+        existing = _parse_parameters_line(parameter_line)
+
+    replacements = {}
+    output_size = f"{width}x{height}"
+    if update_size and existing.get("Size") != output_size:
+        replacements["Size"] = output_size
+    for key, value in additions:
+        if key not in existing:
+            replacements[key] = value
+
+    if not replacements:
+        return metadata_text
+
+    parameter_line = _replace_parameters(parameter_line, replacements)
+
+    if parameters_index is None:
+        if lines:
+            lines.append(parameter_line)
+        else:
+            lines = [parameter_line]
+    else:
+        lines[parameters_index] = parameter_line
+    return "\n".join(lines)
 
 
 @lru_cache(maxsize=128)
@@ -508,6 +792,11 @@ def _exif(metadata: str, workflow: Any = None) -> Image.Exif:
     return exif
 
 
+def _pil_from_tensor(image: Any) -> Image.Image:
+    array = 255.0 * image.detach().cpu().numpy()
+    return Image.fromarray(np.clip(array, 0, 255).astype(np.uint8))
+
+
 class SaveImageEfficient:
     CATEGORY = "Efficiency Nodes/utils"
     DESCRIPTION = "Save images with generation metadata and dynamic filenames"
@@ -637,3 +926,122 @@ class SaveImageEfficient:
             )
 
         return {"result": (original_images,), "ui": {"images": results}}
+
+
+class SaveImageWithMetadata:
+    CATEGORY = "Efficiency Nodes/utils"
+    DESCRIPTION = "Save a single PNG with existing A1111 metadata and dynamic filename handling"
+    RETURN_TYPES = ()
+    FUNCTION = "save"
+    OUTPUT_NODE = True
+
+    def __init__(self):
+        self.output_dir = folder_paths.get_output_directory()
+        self.type = "output"
+        self.prefix_append = ""
+        self.compress_level = 4
+
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "image": ("IMAGE",),
+                "filename_prefix": (
+                    "STRING",
+                    {
+                        "default": "ComfyUI",
+                        "tooltip": "Supports %seed%, %width%, %height%, %pprompt:N%, %nprompt:N%, %model:N%, and %date:FORMAT%.",
+                    },
+                ),
+                "metadata": ("STRING", {"default": ""}),
+            },
+            "optional": {
+                "upscale_model_name": (
+                    ["(auto)", "None"] + folder_paths.get_filename_list("upscale_models"),
+                    {
+                        "tooltip": "Written as A1111 Hires upscaler. Auto reads an upstream upscale model loader when possible.",
+                    },
+                ),
+                "upscale_by": (
+                    "FLOAT",
+                    {
+                        "default": 0.0,
+                        "min": 0.0,
+                        "max": 16.0,
+                        "step": 0.05,
+                        "tooltip": "Written as A1111 Hires upscale when greater than 0. Otherwise inferred from metadata Size and output image size.",
+                    },
+                ),
+                "add_counter_to_filename": ("BOOLEAN", {"default": True}),
+            },
+            "hidden": {
+                "unique_id": "UNIQUE_ID",
+                "prompt": "PROMPT",
+            },
+        }
+
+    def save(
+        self,
+        image,
+        filename_prefix="ComfyUI",
+        metadata="",
+        upscale_model_name="(auto)",
+        upscale_by=0.0,
+        add_counter_to_filename=True,
+        unique_id=None,
+        prompt=None,
+    ):
+        original_image = image
+        if isinstance(image, list):
+            image = image[0]
+        elif hasattr(image, "shape") and len(image.shape) == 4:
+            image = image[0]
+
+        height, width = image.shape[:2]
+        metadata = append_hires_metadata(
+            metadata,
+            width,
+            height,
+            prompt=prompt,
+            unique_id=unique_id,
+            upscale_model_name=upscale_model_name,
+            upscale_by=upscale_by,
+        )
+
+        filename_metadata = parse_metadata_text(metadata)
+        filename_metadata["size"] = f"{width}x{height}"
+        filename_prefix = format_filename(
+            filename_prefix + self.prefix_append,
+            filename_metadata,
+        )
+        full_output_folder, filename, counter, subfolder, _ = (
+            folder_paths.get_save_image_path(
+                filename_prefix, self.output_dir, width, height
+            )
+        )
+        os.makedirs(full_output_folder, exist_ok=True)
+
+        pil_image = _pil_from_tensor(image)
+        pnginfo = PngImagePlugin.PngInfo()
+        if metadata:
+            pnginfo.add_text("parameters", metadata)
+
+        base_filename = filename
+        if add_counter_to_filename:
+            base_filename += f"_{counter:05}_"
+        output_name = base_filename + ".png"
+        pil_image.save(
+            os.path.join(full_output_folder, output_name),
+            format="PNG",
+            pnginfo=pnginfo,
+            compress_level=self.compress_level,
+        )
+
+        return {
+            "result": (original_image,),
+            "ui": {
+                "images": [
+                    {"filename": output_name, "subfolder": subfolder, "type": self.type}
+                ]
+            },
+        }

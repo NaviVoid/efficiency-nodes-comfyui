@@ -45,7 +45,6 @@ from nodes import (
     VAEEncodeTiled,
 )
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageSequence
-from PIL.PngImagePlugin import PngInfo
 from torch import Tensor
 
 from .py import (
@@ -57,7 +56,7 @@ from .py import (
     smZ_rng_source,
     ttl_nn_latent_upscaler,
 )
-from .py.save_image import SaveImageEfficient
+from .py.save_image import SaveImageEfficient, SaveImageWithMetadata
 from .tsc_utils import *
 
 # Get the absolute path of various directories
@@ -7889,59 +7888,6 @@ class SDupscaleTiledSize:
         )
 
         return (image, upscale_by, tiled_width, tiled_height)
-
-
-class SaveImageWithMetadata:
-    def __init__(self):
-        self.output_dir = folder_paths.get_output_directory()
-        self.type = "output"
-        self.prefix_append = ""
-        self.compress_level = 4
-
-    @classmethod
-    def INPUT_TYPES(s):
-        return {
-            "required": {
-                "image": ("IMAGE",),
-                "filename_prefix": ("STRING", {"default": "ComfyUI"}),
-                "metadata": ("STRING", {"default": ""}),
-            },
-        }
-
-    RETURN_TYPES = ()
-    FUNCTION = "save"
-    OUTPUT_NODE = True
-    CATEGORY = "Efficiency Nodes/utils"
-
-    def save(self, image, filename_prefix="ComfyUI", metadata=""):
-        if isinstance(image, list):
-            image = image[0]
-        if isinstance(metadata, list):
-            metadata = metadata[0]
-
-        filename_prefix += self.prefix_append
-        full_output_folder, filename, counter, subfolder, filename_prefix = (
-            folder_paths.get_save_image_path(
-                filename_prefix, self.output_dir, image.shape[1], image.shape[0]
-            )
-        )
-
-        img = tensor2pil(image)
-        meta = PngInfo()
-        meta.add_text("parameters", metadata)
-
-        file = f"{filename}_{counter:05}_.png"
-        img.save(
-            os.path.join(full_output_folder, file),
-            pnginfo=meta,
-            compress_level=self.compress_level,
-        )
-
-        return {
-            "ui": {
-                "images": {"filename": file, "subfolder": subfolder, "type": self.type}
-            }
-        }
 
 
 class ImageWithMetadata:

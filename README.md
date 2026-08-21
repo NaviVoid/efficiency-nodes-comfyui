@@ -46,7 +46,7 @@ python -m pip install -r requirements.txt
 | `SDXLToAnimaPrompt` | 为每个 tag 添加 Anima 使用的 `@` 标记 |
 | `ImageWithPrompt` | 从图片 `parameters` 元数据读取 positive、negative 和原始参数 |
 | `PickImageWithPrompt` | 批量读取图片元数据并通过正则表达式提取文本 |
-| `SaveImageWithMetadata` | 将已有 metadata 字符串写回 PNG 图片 |
+| `SaveImageWithMetadata` | 将已有 metadata 字符串写回单张 PNG，并支持动态路径与放大信息 |
 | `RandomWeightedPrompt` | 从文本文件随机抽取词条并生成随机权重 |
 | `StringListToWildcards` | 将字符串列表转换为 `{a\|b\|c}` wildcard 格式 |
 | `SDupscaleTiledSize` | 根据图片尺寸和放大倍率计算 Ultimate SD Upscale 分块尺寸 |
@@ -97,6 +97,15 @@ Steps: 8, Sampler: Euler a Simple, CFG scale: 1.0, Seed: 1618, Size: 1280x1920, 
 - `save_with_metadata`：是否保存生成参数。
 - `embed_workflow`：是否嵌入 ComfyUI workflow。
 - `add_counter_to_filename`：是否在文件名后添加递增编号。
+
+## SaveImageWithMetadata
+
+该节点用于读取图片、放大后继续保存原始 `parameters` 文本。保存时会将 `Size` 更新为最终图片尺寸。`filename_prefix` 支持与 `Save Image (Efficient)` 相同的路径变量；其中 `%width%`、`%height%` 使用最终保存图片尺寸，`%seed%`、`%model%`、`%pprompt%`、`%nprompt%` 从传入的 metadata 解析。
+
+保存 PNG 时会按 A1111 infotext 字段补充放大信息：
+
+- `Hires upscale`：从 metadata 中的原始 `Size` 和输出图片尺寸推断，或使用手动 `upscale_by`。
+- `Hires upscaler`：默认从上游 upscale model loader 推断，也可通过 `upscale_model_name` 手动指定。
 
 ### 动态文件名和目录
 

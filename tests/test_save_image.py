@@ -29,6 +29,8 @@ save_image.__package__ = "efficiency_save_image"
 sys.modules["efficiency_save_image.runtime_metadata"] = runtime_metadata
 SPEC.loader.exec_module(save_image)
 SaveImageEfficient = save_image.SaveImageEfficient
+SaveImageWithMetadata = save_image.SaveImageWithMetadata
+append_hires_metadata = save_image.append_hires_metadata
 extract_metadata = save_image.extract_metadata
 format_filename = save_image.format_filename
 format_metadata = save_image.format_metadata
@@ -47,6 +49,9 @@ class DummyTensor:
 
     def numpy(self):
         return self.array
+
+    def __getitem__(self, index):
+        return DummyTensor(self.array[index])
 
 
 def workflow():
@@ -154,6 +159,109 @@ class SaveImageTests(unittest.TestCase):
                                 self.assertTrue(
                                     saved.getexif()[0x010E].startswith("Workflow:")
                                 )
+
+    def test_save_image_with_metadata_formats_path_and_appends_hires_fields(self):
+        metadata = (
+            "bright landscape\n"
+            "Negative prompt: blurry\n"
+            "Steps: 20, Sampler: Euler a, CFG scale: 7, Seed: 42, "
+            "Size: 512x384, Model: demo"
+        )
+        prompt = {
+            "loader": {
+                "class_type": "UpscaleModelLoader",
+                "inputs": {"model_name": "upscalers/RealESRGAN_x4plus.pth"},
+            },
+            "upscale": {
+                "class_type": "ImageUpscaleWithModel",
+                "inputs": {
+                    "upscale_model": ["loader", 0],
+                    "image": ["source", 0],
+                },
+            },
+            "save": {
+                "class_type": "SaveImageWithMetadata",
+                "inputs": {"image": ["upscale", 0], "metadata": metadata},
+            },
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            captured = {}
+
+            def get_save_image_path(filename_prefix, output_dir, width, height):
+                captured["filename_prefix"] = filename_prefix
+                captured["size"] = (width, height)
+                return directory, "saved", 7, "archive/demo", filename_prefix
+
+            with patch("folder_paths.get_output_directory", return_value=directory), patch(
+                "folder_paths.get_save_image_path",
+                side_effect=get_save_image_path,
+            ):
+                image = DummyTensor(np.zeros((1, 768, 1024, 3), dtype=np.float32))
+                node = SaveImageWithMetadata()
+                result = node.save(
+                    image,
+                    filename_prefix="archive/%model%/%seed%_%width%x%height%",
+                    metadata=[metadata],
+                    unique_id="save",
+                    prompt=prompt,
+                )
+
+            self.assertEqual(
+                captured["filename_prefix"], "archive/demo/42_1024x768"
+            )
+            self.assertEqual(captured["size"], (1024, 768))
+            self.assertEqual(result["ui"]["images"][0]["filename"], "saved_00007_.png")
+
+            with Image.open(Path(directory) / "saved_00007_.png") as saved:
+                parameters = saved.info["parameters"]
+            self.assertNotIn("Size: 512x384", parameters)
+            self.assertIn("Size: 1024x768", parameters)
+            self.assertIn("Hires upscale: 2", parameters)
+            self.assertIn("Hires upscaler: RealESRGAN_x4plus", parameters)
+
+    def test_hires_metadata_does_not_duplicate_existing_a1111_fields(self):
+        metadata = (
+            "prompt\n"
+            "Steps: 20, Seed: 42, Size: 512x512, Hires upscale: 2, "
+            "Hires upscaler: Existing"
+        )
+
+        updated = append_hires_metadata(
+            metadata,
+            2048,
+            2048,
+            upscale_model_name="Replacement.pth",
+            upscale_by=4,
+        )
+
+        self.assertEqual(updated.count("Hires upscale:"), 1)
+        self.assertEqual(updated.count("Hires upscaler:"), 1)
+        self.assertIn("Size: 2048x2048", updated)
+        self.assertIn("Hires upscale: 2", updated)
+        self.assertIn("Hires upscaler: Existing", updated)
+
+    def test_hires_metadata_preserves_anima_artist_chain(self):
+        metadata = (
+            "masterpiece, 1girl\n"
+            "Negative prompt: worst quality\n"
+            "Steps: 8, Sampler: Euler a Simple, CFG scale: 1.0, Seed: 1618, "
+            'Size: 1280x1920, Anima artist chain: "0.8::@artist_a, 0.1::@artist_b"'
+        )
+
+        updated = append_hires_metadata(
+            metadata,
+            2560,
+            3840,
+            upscale_model_name="RealESRGAN_x4plus.pth",
+        )
+
+        self.assertIn(
+            'Anima artist chain: "0.8::@artist_a, 0.1::@artist_b"',
+            updated,
+        )
+        self.assertIn("Hires upscale: 2", updated)
+        self.assertIn("Hires upscaler: RealESRGAN_x4plus", updated)
 
     def test_writes_checkpoint_and_lora_hashes(self):
         with tempfile.TemporaryDirectory() as directory:
