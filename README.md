@@ -33,7 +33,7 @@ python -m pip install -r requirements.txt
 | 采样 | `KSampler (Efficient)`、`KSampler Adv. (Efficient)`、`KSampler SDXL (Eff.)` |
 | 堆栈 | `LoRA Stacker`、`Control Net Stacker`、`Apply ControlNet Stack` |
 | XY Plot | `XY Plot` 及 Seed、Steps、CFG、Sampler、Checkpoint、LoRA、ControlNet 等输入节点 |
-| 脚本 | `Noise Control Script`、`HighRes-Fix Script`、`Tiled Upscaler Script` |
+| 脚本 | `Noise Control Script`、`Latent Noise Injection Script`、`HighRes-Fix Script`、`Tiled Upscaler Script` |
 | 其他 | `Image Overlay`、`Pack SDXL Tuple`、`Unpack SDXL Tuple` |
 
 ### 本仓库扩展节点
@@ -51,6 +51,31 @@ python -m pip install -r requirements.txt
 | `StringListToWildcards` | 将字符串列表转换为 `{a\|b\|c}` wildcard 格式 |
 | `SDupscaleTiledSize` | 根据图片尺寸和放大倍率计算 Ultimate SD Upscale 分块尺寸 |
 | `Eff MosaicMask` | 仅对遮罩区域应用马赛克 |
+
+`Latent Noise Injection Script` 可接入三个 Efficient KSampler。它在指定采样步完成后对当前 latent 执行确定性的几何变换、噪声混合和可选通道打乱；相同脚本种子与参数会产生相同改动。步骤从 `1` 开始计数，Advanced KSampler 会按实际采样步骤处理 `start_at_step`。
+
+### Latent Noise Injection Script
+
+连接方式：
+
+```text
+Latent Noise Injection Script ── script ──> KSampler (Efficient)
+```
+
+该脚本也可以和其他脚本串联，前一个脚本的 `SCRIPT` 输出连接到下一个脚本的 `script` 输入，最后连接到 Efficient KSampler。未连接脚本的第二个采样器也可以正常运行。
+
+参数说明：
+
+| 参数 | 说明 |
+| --- | --- |
+| `seed` | 控制噪声、随机几何变换和通道排列；相同种子与参数会得到相同结果 |
+| `injection_step` | 注入发生的采样步，从 `1` 开始计数；`1` 表示第一个采样迭代完成后注入 |
+| `injection_ratio` | latent 与生成噪声的混合比例，范围 `0.0` 到 `1.0` |
+| `geometry_transform` | `none`、水平/垂直翻转、90/180/270 度旋转、转置或随机变换 |
+| `noise_type` | `gaussian`、`uniform`、`perlin` 或 `salt_pepper` |
+| `channel_shuffle` | 是否按固定种子打乱 latent 通道 |
+
+支持普通 SD latent 的 `BCHW` 形状，也支持 Anima latent 的 `BCTHW` 形状，例如 `(1, 16, 1, H, W)`。几何变换只作用于最后两个空间维度。
 
 ## Save Image (Efficient)
 

@@ -7,6 +7,7 @@ const connectionMap = {
     "KSampler SDXL (Eff.)": ["input", 3],
     "XY Plot": ["output", 0],
     "Noise Control Script": ["input & output", 0],
+    "Latent Noise Injection Script": ["input & output", 0],
     "HighRes-Fix Script": ["input & output", 0],
     "Tiled Upscaler Script": ["input & output", 0],
     "AnimateDiff Script": ["output", 0]
@@ -102,6 +103,7 @@ function getScriptOptions(nodeType, node) {
     const allScriptTypes = [
         "XY Plot",
         "Noise Control Script",
+        "Latent Noise Injection Script",
         "HighRes-Fix Script",
         "Tiled Upscaler Script",
         "AnimateDiff Script"

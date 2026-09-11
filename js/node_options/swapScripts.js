@@ -55,6 +55,7 @@ function replaceNode(oldNode, newNodeName) {
 const scriptNodes = [
     "XY Plot",
     "Noise Control Script",
+    "Latent Noise Injection Script",
     "HighRes-Fix Script",
     "Tiled Upscaler Script",
     "AnimateDiff Script"

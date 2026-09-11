@@ -52,6 +52,7 @@ from .py import (
     bnk_tiled_samplers,
     cg_mixed_seed_noise,
     city96_latent_upscaler,
+    latent_noise,
     smZ_cfg_denoiser,
     smZ_rng_source,
     ttl_nn_latent_upscaler,
@@ -947,6 +948,8 @@ class TSC_KSampler:
             previous_preview_method = global_preview_method()
             original_prepare_noise = comfy.sample.prepare_noise
             original_KSampler = comfy.samplers.KSampler
+            original_sampler_sample = None
+            patched_sampler_class = None
             original_model_str = str(model)
 
             # monkey patch the sample function
@@ -1017,6 +1020,77 @@ class TSC_KSampler:
                         model, motion_model, beta_schedule, context_options
                     )[0]
 
+                # Inject a deterministic latent transform after the selected sampler step.
+                if keys_exist_in_script("latent_noise"):
+                    (
+                        latent_noise_seed,
+                        latent_noise_step,
+                        latent_noise_ratio,
+                        latent_noise_geometry,
+                        latent_noise_type,
+                        latent_noise_channel_shuffle,
+                    ) = script["latent_noise"]
+                    sampler_class = comfy.samplers.KSampler
+                    patched_sampler_class = sampler_class
+                    original_sampler_sample = sampler_class.sample
+                    target_step = max(0, int(latent_noise_step) - 1)
+
+                    def sample_with_latent_noise(
+                        sampler,
+                        noise,
+                        positive,
+                        negative,
+                        cfg,
+                        latent_image=None,
+                        start_step=None,
+                        last_step=None,
+                        force_full_denoise=False,
+                        denoise_mask=None,
+                        sigmas=None,
+                        callback=None,
+                        disable_pbar=False,
+                        seed=None,
+                    ):
+                        applied = False
+                        absolute_start_step = start_step or 0
+
+                        def latent_noise_callback(step, x0, x, total_steps):
+                            nonlocal applied
+                            absolute_step = absolute_start_step + step
+                            if not applied and absolute_step == target_step:
+                                transformed = latent_noise.transform_samples(
+                                    x,
+                                    latent_noise_seed,
+                                    latent_noise_ratio,
+                                    latent_noise_geometry,
+                                    latent_noise_type,
+                                    latent_noise_channel_shuffle,
+                                )
+                                with torch.no_grad():
+                                    x.copy_(transformed)
+                                applied = True
+                            if callback is not None:
+                                callback(step, x0, x, total_steps)
+
+                        return original_sampler_sample(
+                            sampler,
+                            noise,
+                            positive,
+                            negative,
+                            cfg,
+                            latent_image=latent_image,
+                            start_step=start_step,
+                            last_step=last_step,
+                            force_full_denoise=force_full_denoise,
+                            denoise_mask=denoise_mask,
+                            sigmas=sigmas,
+                            callback=latent_noise_callback,
+                            disable_pbar=disable_pbar,
+                            seed=seed,
+                        )
+
+                    sampler_class.sample = sample_with_latent_noise
+
                 # ------------------------------------------------------------------------------------------------------
                 # Store run parameters as strings. Load previous stored samples if all parameters match.
                 latent_image_hash = tensor_to_hash(latent_image["samples"])
@@ -1063,6 +1137,7 @@ class TSC_KSampler:
                     add_seed_noise,
                     m_seed,
                     m_weight,
+                    script.get("latent_noise") if script else None,
                 ]
 
                 # Convert all elements in parameters to strings, except for the hash variable checks
@@ -1411,6 +1486,8 @@ class TSC_KSampler:
                 # Restore global changes
                 set_preview_method(previous_preview_method)
                 comfy.samplers.KSampler = original_KSampler
+                if original_sampler_sample is not None and patched_sampler_class is not None:
+                    patched_sampler_class.sample = original_sampler_sample
                 comfy.sample.prepare_noise = original_prepare_noise
                 comfy.samplers.calculate_sigmas = original_calculation
                 comfy.samplers.KSampler.SCHEDULERS = original_KSampler_SCHEDULERS
@@ -6874,6 +6951,58 @@ class TSC_Noise_Control_Script:
         return (script,)
 
 
+# Deterministic latent adjustment and noise injection script.
+class TSC_Latent_Noise_Injection:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "seed": (
+                    "INT",
+                    {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF},
+                ),
+                "injection_step": (
+                    "INT",
+                    {"default": 1, "min": 1, "max": 10000},
+                ),
+                "injection_ratio": (
+                    "FLOAT",
+                    {"default": 0.15, "min": 0.0, "max": 1.0, "step": 0.01},
+                ),
+                "geometry_transform": (list(latent_noise.GEOMETRY_TRANSFORMS),),
+                "noise_type": (list(latent_noise.NOISE_TYPES),),
+                "channel_shuffle": ("BOOLEAN", {"default": False}),
+            },
+            "optional": {"script": ("SCRIPT",)},
+        }
+
+    RETURN_TYPES = ("SCRIPT",)
+    RETURN_NAMES = ("SCRIPT",)
+    FUNCTION = "latent_noise_injection"
+    CATEGORY = "Efficiency Nodes/Scripts"
+
+    def latent_noise_injection(
+        self,
+        seed,
+        injection_step,
+        injection_ratio,
+        geometry_transform,
+        noise_type,
+        channel_shuffle,
+        script=None,
+    ):
+        script = script or {}
+        script["latent_noise"] = (
+            int(seed),
+            int(injection_step),
+            float(injection_ratio),
+            geometry_transform,
+            noise_type,
+            bool(channel_shuffle),
+        )
+        return (script,)
+
+
 ########################################################################################################################
 # Add controlnet options if have controlnet_aux installed (https://github.com/Fannovel16/comfyui_controlnet_aux)
 use_controlnet_widget = preprocessor_widget = (["_"],)
@@ -8024,6 +8153,7 @@ NODE_CLASS_MAPPINGS = {
     "Join XY Inputs of Same Type": TSC_XYplot_JoinInputs,
     "Image Overlay": TSC_ImageOverlay,
     "Noise Control Script": TSC_Noise_Control_Script,
+    "Latent Noise Injection Script": TSC_Latent_Noise_Injection,
     "HighRes-Fix Script": TSC_HighRes_Fix,
     "Tiled Upscaler Script": TSC_Tiled_Upscaler,
     "LoRA Stack to String converter": TSC_LoRA_Stack2String,
