@@ -1,5 +1,4 @@
 # Efficiency Nodes Utility functions
-from torch import Tensor
 import torch
 from PIL import Image
 import numpy as np

@@ -12,6 +12,7 @@ from typing import Any
 import folder_paths
 import numpy as np
 from PIL import Image, PngImagePlugin
+import piexif
 
 from .runtime_metadata import get_runtime_metadata
 
@@ -57,7 +58,11 @@ _SCHEDULER_NAMES = {
 def _model_stem(filename: str) -> str:
     normalized = os.path.normpath(filename)
     stem, extension = os.path.splitext(normalized)
-    return stem if extension.casefold() in folder_paths.supported_pt_extensions else normalized
+    return (
+        stem
+        if extension.casefold() in folder_paths.supported_pt_extensions
+        else normalized
+    )
 
 
 def _single_line(value: Any) -> str:
@@ -299,7 +304,9 @@ def parse_metadata_text(metadata: Any) -> dict[str, Any]:
     else:
         prompt = " ".join(prompt_lines[:negative_index])
         first_negative = prompt_lines[negative_index][len("Negative prompt:") :]
-        negative_prompt = " ".join([first_negative] + prompt_lines[negative_index + 1 :])
+        negative_prompt = " ".join(
+            [first_negative] + prompt_lines[negative_index + 1 :]
+        )
 
     result: dict[str, Any] = {
         "prompt": _single_line(prompt),
@@ -377,10 +384,7 @@ def _upscale_model_from_nodes(nodes: list[dict]) -> str:
                 return _model_display_name(value)
 
         value = inputs.get("model_name")
-        if (
-            _valid_upscale_name(value)
-            and "upscale" in class_type.casefold()
-        ):
+        if _valid_upscale_name(value) and "upscale" in class_type.casefold():
             return _model_display_name(value)
     return ""
 
@@ -455,8 +459,10 @@ def _sha256(path: str, _size: int, _mtime_ns: int) -> str:
 
 
 def _model_hash(folder_name: str, filename: str) -> str | None:
-    path = filename if os.path.isfile(filename) else folder_paths.get_full_path(
-        folder_name, filename
+    path = (
+        filename
+        if os.path.isfile(filename)
+        else folder_paths.get_full_path(folder_name, filename)
     )
     if path is None:
         requested_stem = _model_stem(filename).casefold()
@@ -508,7 +514,9 @@ def _collect_loras(
             lora_name = inputs.get(f"lora_name_{index}")
             if not isinstance(lora_name, str) or lora_name == "None":
                 continue
-            strength_key = f"lora_wt_{index}" if mode == "simple" else f"model_str_{index}"
+            strength_key = (
+                f"lora_wt_{index}" if mode == "simple" else f"model_str_{index}"
+            )
             graph_loras.append((lora_name, inputs.get(strength_key, 1.0)))
 
     pattern = r"<lora:([^:>]+):([^:>]+)(?::[^>]+)?>"
@@ -539,9 +547,9 @@ def _collect_loras(
     for filename, strength in unique:
         name = os.path.basename(_model_stem(filename))
         if (
-            (filename, strength) in applied_loras + runtime_text_loras
-            and name.casefold() not in prompt_names
-        ):
+            filename,
+            strength,
+        ) in applied_loras + runtime_text_loras and name.casefold() not in prompt_names:
             lora_text.append(f"<lora:{name}:{strength}>")
         if hash_value := _model_hash("loras", filename):
             hashes[name] = hash_value
@@ -632,9 +640,7 @@ def extract_metadata(
         metadata["anima_artist_chain"] = _single_line(anima_artist_chain)
 
     metadata["prompt"] = _single_line(metadata.get("prompt", ""))
-    metadata["negative_prompt"] = _single_line(
-        metadata.get("negative_prompt", "")
-    )
+    metadata["negative_prompt"] = _single_line(metadata.get("negative_prompt", ""))
 
     checkpoint_folder = "checkpoints"
     for node in nodes:
@@ -678,7 +684,9 @@ def extract_metadata(
 def format_metadata(metadata: dict[str, Any]) -> str:
     prompt = _single_line(metadata.get("prompt", ""))
     loras = _single_line(metadata.get("loras", ""))
-    positive = f"{prompt.rstrip(', ')}, {loras}" if prompt and loras else prompt or loras
+    positive = (
+        f"{prompt.rstrip(', ')}, {loras}" if prompt and loras else prompt or loras
+    )
     parts = [positive]
 
     negative_prompt = _single_line(metadata.get("negative_prompt", ""))
@@ -719,8 +727,7 @@ def format_metadata(metadata: dict[str, Any]) -> str:
     lora_hashes = metadata.get("lora_hashes", {})
     if lora_hashes:
         hashes = ", ".join(
-            f"{name}: {hash_value[:10]}"
-            for name, hash_value in lora_hashes.items()
+            f"{name}: {hash_value[:10]}" for name, hash_value in lora_hashes.items()
         )
         parameters.append(f'Lora hashes: "{hashes}"')
     anima_artist_chain = _single_line(metadata.get("anima_artist_chain", ""))
@@ -783,13 +790,27 @@ def _workflow(extra_pnginfo: dict | None) -> Any | None:
     return extra_pnginfo.get("workflow") if isinstance(extra_pnginfo, dict) else None
 
 
-def _exif(metadata: str, workflow: Any = None) -> Image.Exif:
-    exif = Image.Exif()
+def _get_exif_bytes(metadata: str, workflow: Any = None) -> bytes:
+    """直接使用 piexif 构建标准的 EXIF 二进制流，防止 Pillow 内部转换时吞掉空字节"""
+    exif_dict = {
+        "0th": {},
+        "Exif": {},
+        "GPS": {},
+        "Interop": {},
+        "1st": {},
+        "thumbnail": None,
+    }
+
     if metadata:
-        exif[0x9286] = b"UNICODE\0" + metadata.encode("utf-16be")
+        exif_dict["Exif"][piexif.ExifIFD.UserComment] = (
+            b"ASCII\x00\x00\x00" + metadata.encode("utf-8")
+        )
     if workflow is not None:
-        exif[0x010E] = "Workflow:" + json.dumps(workflow)
-    return exif
+        workflow_str = "Workflow:" + json.dumps(workflow)
+        exif_dict["0th"][piexif.ImageIFD.ImageDescription] = workflow_str.encode(
+            "utf-8"
+        )
+    return piexif.dump(exif_dict)
 
 
 def _pil_from_tensor(image: Any) -> Image.Image:
@@ -897,7 +918,7 @@ class SaveImageEfficient:
                 output_name = base_filename + ".jpg"
                 save_kwargs = {"quality": quality, "optimize": True}
                 if save_with_metadata and metadata:
-                    save_kwargs["exif"] = _exif(metadata)
+                    save_kwargs["exif"] = _get_exif_bytes(metadata)
                 pil_image.convert("RGB").save(
                     os.path.join(full_output_folder, output_name),
                     format="JPEG",
@@ -910,9 +931,10 @@ class SaveImageEfficient:
                     "lossless": lossless_webp,
                     "method": 0,
                 }
-                exif = _exif(metadata if save_with_metadata else "", workflow)
-                if len(exif):
-                    save_kwargs["exif"] = exif
+                meta_to_save = metadata if save_with_metadata else ""
+                if meta_to_save or workflow is not None:
+                    exif_bytes = _get_exif_bytes(meta_to_save, workflow)
+                    save_kwargs["exif"] = exif_bytes
                 pil_image.save(
                     os.path.join(full_output_folder, output_name),
                     format="WEBP",
@@ -930,7 +952,9 @@ class SaveImageEfficient:
 
 class SaveImageWithMetadata:
     CATEGORY = "Efficiency Nodes/utils"
-    DESCRIPTION = "Save a single PNG with existing A1111 metadata and dynamic filename handling"
+    DESCRIPTION = (
+        "Save a single PNG with existing A1111 metadata and dynamic filename handling"
+    )
     RETURN_TYPES = ()
     FUNCTION = "save"
     OUTPUT_NODE = True
@@ -957,7 +981,8 @@ class SaveImageWithMetadata:
             },
             "optional": {
                 "upscale_model_name": (
-                    ["(auto)", "None"] + folder_paths.get_filename_list("upscale_models"),
+                    ["(auto)", "None"]
+                    + folder_paths.get_filename_list("upscale_models"),
                     {
                         "tooltip": "Written as A1111 Hires upscaler. Auto reads an upstream upscale model loader when possible.",
                     },

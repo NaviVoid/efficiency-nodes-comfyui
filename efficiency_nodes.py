@@ -1,13 +1,5 @@
-# Efficiency Nodes - A collection of my ComfyUI custom nodes to help streamline workflows and reduce total node count.
-# by Luciano Cirino (Discord: TSC#9184) - April 2023 - October 2023
-# https://github.com/LucianoCirino/efficiency-nodes-comfyui
-
-import ast
-import copy
-import json
 import os
 import re
-import subprocess
 import sys
 from importlib import import_module
 from pathlib import Path
@@ -19,17 +11,14 @@ import comfy.sd
 import comfy.utils
 import node_helpers
 import numpy as np
-import psutil
 import torch
 from comfy import samplers
 from comfy_extras.nodes_align_your_steps import AlignYourStepsScheduler
-from comfy_extras.nodes_clip_sdxl import CLIPTextEncodeSDXL, CLIPTextEncodeSDXLRefiner
 from comfy_extras.nodes_gits import GITSScheduler
 from comfy_extras.nodes_upscale_model import ImageUpscaleWithModel, UpscaleModelLoader
 from nodes import (
     MAX_RESOLUTION,
     CLIPSetLastLayer,
-    CLIPTextEncode,
     ControlNetApply,
     ControlNetApplyAdvanced,
     ControlNetLoader,
@@ -45,7 +34,6 @@ from nodes import (
     VAEEncodeTiled,
 )
 from PIL import Image, ImageDraw, ImageFont, ImageOps, ImageSequence
-from torch import Tensor
 
 from .py import (
     bnk_adv_encode,
@@ -1486,7 +1474,10 @@ class TSC_KSampler:
                 # Restore global changes
                 set_preview_method(previous_preview_method)
                 comfy.samplers.KSampler = original_KSampler
-                if original_sampler_sample is not None and patched_sampler_class is not None:
+                if (
+                    original_sampler_sample is not None
+                    and patched_sampler_class is not None
+                ):
                     patched_sampler_class.sample = original_sampler_sample
                 comfy.sample.prepare_noise = original_prepare_noise
                 comfy.samplers.calculate_sigmas = original_calculation
@@ -7524,9 +7515,15 @@ class RandomWeightedPrompt:
                 "file_path": ("STRING", {"default": ""}),
                 "pick_min": ("INT", {"default": 1, "min": 0, "max": 10000, "step": 1}),
                 "pick_max": ("INT", {"default": 5, "min": 0, "max": 10000, "step": 1}),
-                "weight_min": ("FLOAT", {"default": 0.5, "min": -10.0, "max": 10.0, "step": 0.01}),
-                "weight_max": ("FLOAT", {"default": 1.2, "min": -10.0, "max": 10.0, "step": 0.01}),
-                "seed": ("INT", {"default": 0, "min": 0, "max": 0xffffffffffffffff}),
+                "weight_min": (
+                    "FLOAT",
+                    {"default": 0.5, "min": -10.0, "max": 10.0, "step": 0.01},
+                ),
+                "weight_max": (
+                    "FLOAT",
+                    {"default": 1.2, "min": -10.0, "max": 10.0, "step": 0.01},
+                ),
+                "seed": ("INT", {"default": 0, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
             }
         }
 
@@ -7545,7 +7542,7 @@ class RandomWeightedPrompt:
             content = f.read()
 
         # 按换行或 ',' 分词，词内的 '\' 保持原样不转义
-        words = re.split(r'[,\n]', content)
+        words = re.split(r"[,\n]", content)
         words = [w.strip() for w in words]
         words = [w for w in words if w]
 
@@ -7565,7 +7562,11 @@ class RandomWeightedPrompt:
 
         chosen = rng.sample(words, n)
 
-        wlo, whi = (weight_min, weight_max) if weight_min <= weight_max else (weight_max, weight_min)
+        wlo, whi = (
+            (weight_min, weight_max)
+            if weight_min <= weight_max
+            else (weight_max, weight_min)
+        )
 
         parts = []
         for w in chosen:
@@ -7592,12 +7593,12 @@ def unique_by(s):
 #   [pmpt::step]     -> remove pmpt after step (equivalent to [pmpt::step] with empty p2)
 #   [p1:p2:step]     -> switch p1 -> p2 after step
 # step may be an integer step count or a 0.0-1.0 fraction of total steps.
-_PROMPT_EDIT_RE_3 = re.compile(r'^[^:\[\]]*:[^:\[\]]*:\d+(?:\.\d+)?$')
-_PROMPT_EDIT_RE_2 = re.compile(r'^[^:\[\]]*:\d+(?:\.\d+)?$')
+_PROMPT_EDIT_RE_3 = re.compile(r"^[^:\[\]]*:[^:\[\]]*:\d+(?:\.\d+)?$")
+_PROMPT_EDIT_RE_2 = re.compile(r"^[^:\[\]]*:\d+(?:\.\d+)?$")
 
 
 def _is_prompt_edit(content):
-    if '[' in content or ']' in content:
+    if "[" in content or "]" in content:
         return False
     if _PROMPT_EDIT_RE_3.match(content):
         return True
@@ -7617,19 +7618,19 @@ def split_top_level_commas(text):
     n = len(text)
     while i < n:
         ch = text[i]
-        if ch == '\\' and i + 1 < n:
-            buf += text[i:i + 2]
+        if ch == "\\" and i + 1 < n:
+            buf += text[i : i + 2]
             i += 2
             continue
-        if ch == '[':
+        if ch == "[":
             depth_sq += 1
-        elif ch == ']':
+        elif ch == "]":
             depth_sq = max(0, depth_sq - 1)
-        elif ch == '(':
+        elif ch == "(":
             depth_pa += 1
-        elif ch == ')':
+        elif ch == ")":
             depth_pa = max(0, depth_pa - 1)
-        if ch == ',' and depth_sq == 0 and depth_pa == 0:
+        if ch == "," and depth_sq == 0 and depth_pa == 0:
             parts.append(buf)
             buf = ""
         else:
@@ -7648,52 +7649,52 @@ def convert_brackets_to_weights(text):
     Example: [A,[B]] -> (A:0.9),(B:0.81)
     Example: a [fantasy:cyberpunk:16] landscape -> a [fantasy:cyberpunk:16] landscape
     """
-    ESCAPE_OPEN = '\x00'
-    ESCAPE_CLOSE = '\x01'
+    ESCAPE_OPEN = "\x00"
+    ESCAPE_CLOSE = "\x01"
 
-    s = text.replace('\\[', ESCAPE_OPEN).replace('\\]', ESCAPE_CLOSE)
+    s = text.replace("\\[", ESCAPE_OPEN).replace("\\]", ESCAPE_CLOSE)
 
     def find_matching(s, start):
         depth = 1
         i = start + 1
         while i < len(s) and depth > 0:
-            if s[i] == '[':
+            if s[i] == "[":
                 depth += 1
-            elif s[i] == ']':
+            elif s[i] == "]":
                 depth -= 1
             i += 1
         return i
 
     def fmt_weight(w):
-        return f"{round(w, 2):.2f}".rstrip('0').rstrip('.')
+        return f"{round(w, 2):.2f}".rstrip("0").rstrip(".")
 
     def wrap_plain(text, weight):
         if weight == 1.0:
             return text
         w_str = fmt_weight(weight)
-        segments = text.split(',')
+        segments = text.split(",")
         result = []
         for seg in segments:
             stripped = seg.strip()
             if stripped:
-                leading = seg[:len(seg) - len(seg.lstrip())]
-                trailing = seg[len(seg.rstrip()):]
+                leading = seg[: len(seg) - len(seg.lstrip())]
+                trailing = seg[len(seg.rstrip()) :]
                 result.append(f"{leading}({stripped}:{w_str}){trailing}")
             else:
                 result.append(seg)
-        return ','.join(result)
+        return ",".join(result)
 
     def process(s, weight):
         result = ""
         i = 0
         plain = ""
         while i < len(s):
-            if s[i] == '[':
+            if s[i] == "[":
                 if plain:
                     result += wrap_plain(plain, weight)
                     plain = ""
                 end = find_matching(s, i)
-                inner = s[i + 1:end - 1]
+                inner = s[i + 1 : end - 1]
                 if _is_prompt_edit(inner):
                     literal = s[i:end]
                     if weight == 1.0:
@@ -7711,7 +7712,7 @@ def convert_brackets_to_weights(text):
         return result
 
     result = process(s, 1.0)
-    result = result.replace(ESCAPE_OPEN, '[').replace(ESCAPE_CLOSE, ']')
+    result = result.replace(ESCAPE_OPEN, "[").replace(ESCAPE_CLOSE, "]")
     return result
 
 
@@ -7783,8 +7784,8 @@ class OrganizePrompt:
 # 按所有逗号（含括号内）切分，每个片段开头加/去 '@'；逗号与原始空白原样保留，可无损往返。
 #   sdxl:  (misaka 12003-gou, houkisei, umehara sei:0.75), (kaneko kazuma, quasarcake:0.2)
 #   anima: (@misaka 12003-gou, @houkisei, @umehara sei:0.75), (@kaneko kazuma, @quasarcake:0.2)
-_ANIMA_MARKER = '@'
-_ANIMA_LEAD_CHARS = '([ \t'
+_ANIMA_MARKER = "@"
+_ANIMA_LEAD_CHARS = "([ \t"
 
 
 def _anima_apply_segment(seg, mark):
@@ -7798,7 +7799,7 @@ def _anima_apply_segment(seg, mark):
             return seg[:j] + _ANIMA_MARKER + seg[j:]
         return seg
     if j < n and seg[j] == _ANIMA_MARKER:
-        return seg[:j] + seg[j + 1:]
+        return seg[:j] + seg[j + 1 :]
     return seg
 
 
@@ -7808,12 +7809,12 @@ def _anima_each_segment(text, mark):
     n = len(text)
     seg_start = 0
     while True:
-        comma = text.find(',', seg_start)
+        comma = text.find(",", seg_start)
         end = n if comma == -1 else comma
         out.append(_anima_apply_segment(text[seg_start:end], mark))
         if comma == -1:
             break
-        out.append(',')
+        out.append(",")
         seg_start = comma + 1
     return "".join(out)
 

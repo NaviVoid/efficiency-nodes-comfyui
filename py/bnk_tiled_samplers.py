@@ -1,8 +1,4 @@
 # https://github.com/BlenderNeko/ComfyUI_TiledKSampler
-import sys
-import os
-import itertools
-import numpy as np
 from tqdm.auto import tqdm
 import torch
 
@@ -99,7 +95,6 @@ def slices_T2I(h, h_len, w, w_len, model:comfy.controlnet.ControlBase, img):
 
 # TODO: refactor some of the mess
 
-from PIL import Image
 
 def sample_common(model, add_noise, noise_seed, tile_width, tile_height, tiling_strategy, steps, cfg, sampler_name, scheduler, positive, negative, latent_image, start_at_step, end_at_step, return_with_leftover_noise, denoise=1.0, preview=False):
     end_at_step = min(end_at_step, steps)
