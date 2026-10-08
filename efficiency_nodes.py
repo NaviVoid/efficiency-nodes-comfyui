@@ -45,7 +45,10 @@ from .py import (
     smZ_rng_source,
     ttl_nn_latent_upscaler,
 )
-from .py.save_image import SaveImageEfficient, SaveImageWithMetadata
+from .py.save_image import (
+    SaveImageEfficient,
+    SaveImageWithMetadata,
+)
 from .tsc_utils import *
 
 # Get the absolute path of various directories

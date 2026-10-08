@@ -8,7 +8,6 @@ from collections import deque
 from datetime import datetime
 from functools import lru_cache
 from typing import Any
-
 import folder_paths
 import numpy as np
 from PIL import Image, PngImagePlugin
@@ -851,6 +850,8 @@ class SaveImageEfficient:
                 "embed_workflow": ("BOOLEAN", {"default": False}),
                 "save_with_metadata": ("BOOLEAN", {"default": True}),
                 "add_counter_to_filename": ("BOOLEAN", {"default": True}),
+                "upscale_model_name": ("STRING", {"default": ""}),
+                "upscale_by": ("INT", {"default": 1}),
             },
             "hidden": {
                 "unique_id": "UNIQUE_ID",
@@ -872,6 +873,8 @@ class SaveImageEfficient:
         embed_workflow=False,
         save_with_metadata=True,
         add_counter_to_filename=True,
+        upscale_model_name="",
+        upscale_by=1,
     ):
         original_images = images
         if hasattr(images, "shape") and len(images.shape) == 3:
@@ -891,6 +894,13 @@ class SaveImageEfficient:
             )
         )
         os.makedirs(full_output_folder, exist_ok=True)
+
+        if upscale_model_name and upscale_by > 1:
+            clean_model_name = upscale_model_name.replace(".pth", "").replace(
+                ".safetensors", ""
+            )
+            # Postprocess 格式规范，兼容 A1111
+            metadata += f", Postprocess upscale by: {upscale_by}, Postprocess upscaler 1: {clean_model_name}"
 
         results = []
         workflow = _workflow(extra_pnginfo) if embed_workflow else None
