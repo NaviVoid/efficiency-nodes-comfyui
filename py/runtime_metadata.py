@@ -68,9 +68,7 @@ def _extract_metadata(class_type: str, input_data_all: dict) -> dict[str, Any]:
 
     lora_name = inputs.get("lora_name")
     if isinstance(lora_name, str) and lora_name != "None":
-        strength = inputs.get(
-            "strength_model", inputs.get("lora_model_strength", 1.0)
-        )
+        strength = inputs.get("strength_model", inputs.get("lora_model_strength", 1.0))
         stack.append((lora_name, strength, inputs.get("lora_clip_strength", strength)))
     if stack:
         data["lora_stack"] = []
@@ -91,13 +89,10 @@ def _extract_metadata(class_type: str, input_data_all: dict) -> dict[str, Any]:
             data["anima_artist_chain"] = artist_chain
 
     sampler_keys = ("seed", "noise_seed", "steps", "cfg", "sampler_name", "scheduler")
-    if (
-        isinstance(inputs.get("sampler_name"), str)
-        or (
-            "steps" in inputs
-            and "cfg" in inputs
-            and ("seed" in inputs or "noise_seed" in inputs)
-        )
+    if isinstance(inputs.get("sampler_name"), str) or (
+        "steps" in inputs
+        and "cfg" in inputs
+        and ("seed" in inputs or "noise_seed" in inputs)
     ):
         for key in sampler_keys:
             value = inputs.get(key)

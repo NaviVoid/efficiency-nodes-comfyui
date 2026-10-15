@@ -1,11 +1,13 @@
 import torch
-#from .latent_resizer import LatentResizer
+
+# from .latent_resizer import LatentResizer
 from comfy import model_management
 import os
 
 import torch.nn as nn
 import torch.nn.functional as F
 from einops import rearrange
+
 
 def normalization(channels):
     return nn.GroupNorm(32, channels)
@@ -180,10 +182,12 @@ class LatentResizer(nn.Module):
 
     @classmethod
     def load_model(cls, filename, device="cpu", dtype=torch.float32, dropout=0):
-        if not 'weights_only' in torch.load.__code__.co_varnames:
+        if not "weights_only" in torch.load.__code__.co_varnames:
             weights = torch.load(filename, map_location=torch.device("cpu"))
         else:
-            weights = torch.load(filename, map_location=torch.device("cpu"), weights_only=True)
+            weights = torch.load(
+                filename, map_location=torch.device("cpu"), weights_only=True
+            )
         in_blocks = 0
         out_blocks = 0
         in_tfs = 0
@@ -250,6 +254,7 @@ class LatentResizer(nn.Module):
         x = self.conv_out(x)
         return x
 
+
 ########################################################
 class NNLatentUpscale:
     """
@@ -298,11 +303,15 @@ class NNLatentUpscale:
         samples = latent["samples"].to(device=device, dtype=self.dtype)
 
         if version != self.version:
-            self.model = LatentResizer.load_model(self.weight_path[version], device, self.dtype)
+            self.model = LatentResizer.load_model(
+                self.weight_path[version], device, self.dtype
+            )
             self.version = version
 
         self.model.to(device=device)
-        latent_out = (self.model(self.scale_factor * samples, scale=upscale) / self.scale_factor)
+        latent_out = (
+            self.model(self.scale_factor * samples, scale=upscale) / self.scale_factor
+        )
 
         if self.dtype != torch.float32:
             latent_out = latent_out.to(dtype=torch.float32)
@@ -312,10 +321,7 @@ class NNLatentUpscale:
         self.model.to(device=model_management.vae_offload_device())
         return ({"samples": latent_out},)
 
-NODE_CLASS_MAPPINGS = {
-    "NNLatentUpscale": NNLatentUpscale
-}
 
-NODE_DISPLAY_NAME_MAPPINGS = {
-    "NNlLatentUpscale": "EFF Latent Upscale"
-}
+NODE_CLASS_MAPPINGS = {"NNLatentUpscale": NNLatentUpscale}
+
+NODE_DISPLAY_NAME_MAPPINGS = {"NNlLatentUpscale": "EFF Latent Upscale"}

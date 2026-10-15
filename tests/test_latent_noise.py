@@ -29,20 +29,28 @@ class LatentNoiseTests(unittest.TestCase):
 
     def test_different_seed_changes_noise(self):
         samples = torch.zeros((1, 4, 8, 8))
-        first = latent_noise.transform_samples(samples, 1, 0.5, "none", "gaussian", False)
-        second = latent_noise.transform_samples(samples, 2, 0.5, "none", "gaussian", False)
+        first = latent_noise.transform_samples(
+            samples, 1, 0.5, "none", "gaussian", False
+        )
+        second = latent_noise.transform_samples(
+            samples, 2, 0.5, "none", "gaussian", False
+        )
         self.assertFalse(torch.equal(first, second))
 
     def test_geometry_preserves_latent_shape(self):
         samples = torch.randn((1, 4, 8, 12))
         for transform in latent_noise.GEOMETRY_TRANSFORMS:
-            result = latent_noise.transform_samples(samples, 0, 0.0, transform, "gaussian", False)
+            result = latent_noise.transform_samples(
+                samples, 0, 0.0, transform, "gaussian", False
+            )
             self.assertEqual(result.shape, samples.shape)
 
     def test_anima_latent_shape_is_supported(self):
         samples = torch.randn((1, 16, 1, 8, 12))
         for transform in latent_noise.GEOMETRY_TRANSFORMS:
-            result = latent_noise.transform_samples(samples, 0, 0.2, transform, "perlin", True)
+            result = latent_noise.transform_samples(
+                samples, 0, 0.2, transform, "perlin", True
+            )
             self.assertEqual(result.shape, samples.shape)
 
     def test_latent_metadata_is_preserved(self):

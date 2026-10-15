@@ -117,9 +117,12 @@ class SaveImageTests(unittest.TestCase):
     def test_saves_png_jpeg_and_webp_metadata(self):
         with tempfile.TemporaryDirectory() as directory:
             output_dir = Path(directory)
-            with patch("folder_paths.get_output_directory", return_value=directory), patch(
-                "folder_paths.get_save_image_path",
-                return_value=(directory, "sample", 1, "", "sample"),
+            with (
+                patch("folder_paths.get_output_directory", return_value=directory),
+                patch(
+                    "folder_paths.get_save_image_path",
+                    return_value=(directory, "sample", 1, "", "sample"),
+                ),
             ):
                 image = DummyTensor(np.zeros((2, 2, 3), dtype=np.float32))
                 node = SaveImageEfficient()
@@ -193,9 +196,12 @@ class SaveImageTests(unittest.TestCase):
                 captured["size"] = (width, height)
                 return directory, "saved", 7, "archive/demo", filename_prefix
 
-            with patch("folder_paths.get_output_directory", return_value=directory), patch(
-                "folder_paths.get_save_image_path",
-                side_effect=get_save_image_path,
+            with (
+                patch("folder_paths.get_output_directory", return_value=directory),
+                patch(
+                    "folder_paths.get_save_image_path",
+                    side_effect=get_save_image_path,
+                ),
             ):
                 image = DummyTensor(np.zeros((1, 768, 1024, 3), dtype=np.float32))
                 node = SaveImageWithMetadata()
@@ -207,9 +213,7 @@ class SaveImageTests(unittest.TestCase):
                     prompt=prompt,
                 )
 
-            self.assertEqual(
-                captured["filename_prefix"], "archive/demo/42_1024x768"
-            )
+            self.assertEqual(captured["filename_prefix"], "archive/demo/42_1024x768")
             self.assertEqual(captured["size"], (1024, 768))
             self.assertEqual(result["ui"]["images"][0]["filename"], "saved_00007_.png")
 
@@ -294,18 +298,19 @@ class SaveImageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             lora_path = Path(directory) / "anima-turbo-lora-v0.2.safetensors"
             lora_path.write_bytes(b"lora")
-            runtime_data = {
-                "lora_stack": [("anima-turbo-lora-v0.2", 0.7, 0.7)]
-            }
+            runtime_data = {"lora_stack": [("anima-turbo-lora-v0.2", 0.7, 0.7)]}
 
             def get_full_path(folder_name, filename):
                 if folder_name == "loras" and filename.endswith(".safetensors"):
                     return str(lora_path)
                 return None
 
-            with patch("folder_paths.get_full_path", side_effect=get_full_path), patch(
-                "folder_paths.get_filename_list",
-                return_value=["anima-turbo-lora-v0.2.safetensors"],
+            with (
+                patch("folder_paths.get_full_path", side_effect=get_full_path),
+                patch(
+                    "folder_paths.get_filename_list",
+                    return_value=["anima-turbo-lora-v0.2.safetensors"],
+                ),
             ):
                 metadata = extract_metadata(
                     workflow(), "3", 1024, 768, runtime_data=runtime_data
@@ -320,7 +325,8 @@ class SaveImageTests(unittest.TestCase):
     def test_normalizes_prompts_and_hashes_inline_loras(self):
         with tempfile.TemporaryDirectory() as directory:
             lora_paths = {
-                "tool-front_lighting-illu.safetensors": Path(directory) / "front.safetensors",
+                "tool-front_lighting-illu.safetensors": Path(directory)
+                / "front.safetensors",
                 "tool-Dramatic Lighting Slider-illu.safetensors": Path(directory)
                 / "dramatic.safetensors",
             }
@@ -341,19 +347,25 @@ class SaveImageTests(unittest.TestCase):
                 path = lora_paths.get(filename) if folder_name == "loras" else None
                 return str(path) if path else None
 
-            with patch("folder_paths.get_full_path", side_effect=get_full_path), patch(
-                "folder_paths.get_filename_list",
-                return_value=list(lora_paths),
+            with (
+                patch("folder_paths.get_full_path", side_effect=get_full_path),
+                patch(
+                    "folder_paths.get_filename_list",
+                    return_value=list(lora_paths),
+                ),
             ):
                 metadata = extract_metadata(current_workflow, "3", 1280, 1920)
 
             self.assertNotIn("\n", metadata["prompt"])
             self.assertEqual(metadata["negative_prompt"], "bad quality, watermark")
             self.assertEqual(metadata["loras"], "")
-            self.assertEqual(set(metadata["lora_hashes"]), {
-                "tool-front_lighting-illu",
-                "tool-Dramatic Lighting Slider-illu",
-            })
+            self.assertEqual(
+                set(metadata["lora_hashes"]),
+                {
+                    "tool-front_lighting-illu",
+                    "tool-Dramatic Lighting Slider-illu",
+                },
+            )
 
             parameters = format_metadata(metadata)
             self.assertEqual(len(parameters.splitlines()), 3)
@@ -397,8 +409,9 @@ class SaveImageTests(unittest.TestCase):
         )
         runtime_data = runtime_metadata.get_runtime_metadata({"pipe", "lora"})
 
-        with patch("folder_paths.get_full_path", return_value=None), patch(
-            "folder_paths.get_filename_list", return_value=[]
+        with (
+            patch("folder_paths.get_full_path", return_value=None),
+            patch("folder_paths.get_filename_list", return_value=[]),
         ):
             metadata = extract_metadata(
                 workflow(), "3", 1024, 768, runtime_data=runtime_data
@@ -443,8 +456,9 @@ class SaveImageTests(unittest.TestCase):
         )
         runtime_data = runtime_metadata.get_runtime_metadata({"pack", "sampler"})
 
-        with patch("folder_paths.get_full_path", return_value=None), patch(
-            "folder_paths.get_filename_list", return_value=[]
+        with (
+            patch("folder_paths.get_full_path", return_value=None),
+            patch("folder_paths.get_filename_list", return_value=[]),
         ):
             metadata = extract_metadata(
                 workflow(), "3", 1280, 1920, runtime_data=runtime_data
