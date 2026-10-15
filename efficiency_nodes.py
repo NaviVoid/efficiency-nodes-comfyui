@@ -6848,6 +6848,12 @@ class TSC_ImageOverlay:
             )
             overlay_image = overlay_image.movedim(1, -1)
 
+        # Handle batch dimension - use first image if overlay_image is a batch
+        if len(overlay_image.shape) == 4:
+            if overlay_image.shape[0] > 1:
+                print(f"{warning('Image Overlay Warning:')} Multiple overlay images detected ({overlay_image.shape[0]}), using only the first image.")
+            overlay_image = overlay_image[0]
+
         overlay_image = tensor2pil(overlay_image)
 
         # Add Alpha channel to overlay
